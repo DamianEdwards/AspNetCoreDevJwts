@@ -15,6 +15,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
+// NOTE: These still need to be added manually as we can't affect the app's pipeline from an IStartupFilter
 app.UseAuthentication();
 app.UseAuthorization();
 
