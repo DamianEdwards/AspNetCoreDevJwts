@@ -7,7 +7,12 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SampleWebApi", "SampleWebAp
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DevJwts.Lib", "DevJwts.Lib\DevJwts.Lib.csproj", "{BFDF3E8E-1A5A-4741-A352-B6785B1AE899}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DevJwts.Utils", "DevJwts.Utils\DevJwts.Utils.csproj", "{915EE4CC-1AA3-4EAC-A403-3E31D0D02D44}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DevJwts.Utils", "DevJwts.Utils\DevJwts.Utils.csproj", "{915EE4CC-1AA3-4EAC-A403-3E31D0D02D44}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{C6A04C2E-A02C-4C40-8295-620C8620962B}"
+	ProjectSection(SolutionItems) = preProject
+		README.md = README.md
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
