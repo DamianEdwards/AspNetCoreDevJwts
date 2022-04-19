@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 
@@ -10,13 +11,15 @@ public class DevJwtsConfigureOptions : IConfigureOptions<JwtBearerOptions>, ICon
 {
     private readonly IConfiguration _configuration;
     private readonly IServer _server;
+    private readonly ILogger<DevJwtsConfigureOptions> _logger;
 
-    public DevJwtsConfigureOptions(IConfiguration configuration, IServer server)
+    public DevJwtsConfigureOptions(IConfiguration configuration, IServer server, ILogger<DevJwtsConfigureOptions> logger)
     {
         _configuration = configuration;
         _server = server;
+        _logger = logger;
 
-        SigningKey = GetSigningKey(_configuration);
+        SigningKey = GetSigningKey(_configuration, _logger);
     }
 
     public SecurityKey? SigningKey { get; }
@@ -38,9 +41,18 @@ public class DevJwtsConfigureOptions : IConfigureOptions<JwtBearerOptions>, ICon
         Configure(options);
     }
 
-    private static SecurityKey GetSigningKey(IConfiguration configuration)
+    private static SecurityKey GetSigningKey(IConfiguration configuration, ILogger logger)
     {
-        var jwtKeyMaterialSecret = configuration["AspNetCoreDevJwt:KeyMaterial"];
+        var jwtKeyMaterialSecret = configuration["AspNetCoreDevJwts:KeyMaterial"];
+        if (jwtKeyMaterialSecret is null)
+        {
+            logger.LogWarning(
+                """
+                    Stable key for AspNetCoreDevJwts was not found in app configuration. Add a user secret containing a stable key to enable JWT verification across app restarts:
+                        MyApp> dotnet user-secrets init
+                        MyApp> dotnet user-secrets set "AspNetCoreDevJwts:KeyMaterial" C3F184B1106CD90FB0D8CD44AA2BE378
+                """);
+        }
         var jwtKeyMaterial = !string.IsNullOrEmpty(jwtKeyMaterialSecret)
             ? Convert.FromHexString(jwtKeyMaterialSecret)
             : System.Security.Cryptography.RandomNumberGenerator.GetBytes(16);
