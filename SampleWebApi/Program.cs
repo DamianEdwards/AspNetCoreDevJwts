@@ -1,3 +1,5 @@
+using System.Security.Claims;
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Authentication().AddDevJwtBearer();
@@ -21,7 +23,7 @@ app.UseAuthorization();
 
 app.MapGet("/", () => "Hello, World!");
 
-app.MapGet("/protected", (HttpContext context) => $"Hello {context.User.Identity?.Name ?? "unknown"}")
+app.MapGet("/protected", (ClaimsPrincipal user) => $"Hello {user.Identity?.Name ?? "unknown"}")
     .RequireAuthorization();
 
 app.Run();
