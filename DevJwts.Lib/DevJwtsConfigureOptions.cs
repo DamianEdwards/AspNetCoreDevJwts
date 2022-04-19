@@ -48,9 +48,9 @@ public class DevJwtsConfigureOptions : IConfigureOptions<JwtBearerOptions>, ICon
         {
             logger.LogWarning(
                 """
-                    Stable key for AspNetCoreDevJwts was not found in app configuration. Add a user secret containing a stable key to enable JWT verification across app restarts:
-                        MyApp> dotnet user-secrets init
-                        MyApp> dotnet user-secrets set "AspNetCoreDevJwts:KeyMaterial" C3F184B1106CD90FB0D8CD44AA2BE378
+                   Stable key for AspNetCoreDevJwts was not found in app configuration. Add a user secret containing a stable key to enable JWT verification across app restarts:
+                       MyApp> dotnet user-secrets init
+                       MyApp> dotnet user-secrets set "AspNetCoreDevJwts:KeyMaterial" C3F184B1106CD90FB0D8CD44AA2BE378
                 """);
         }
         var jwtKeyMaterial = !string.IsNullOrEmpty(jwtKeyMaterialSecret)
