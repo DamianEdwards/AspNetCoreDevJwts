@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>
+    <AssemblyName>dev-jwts</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>

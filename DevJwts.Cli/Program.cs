@@ -13,17 +13,24 @@ using Spectre.Console;
 using Spectre.Console.Cli;
 
 var app = new CommandApp();
+app.Configure(config => config.SetApplicationName("dev-jwts"));
 
 app.Configure(config =>
 {
-    config.AddBranch<JwtSettings>("jwt", jwt =>
-    {
-        jwt.AddCommand<ListJwtCommand>("list");
-        jwt.AddCommand<CreateJwtCommand>("create");
-        jwt.AddCommand<PrintJwtCommand>("print");
-        jwt.AddCommand<DeleteJwtCommand>("delete");
-        jwt.AddCommand<ClearJwtCommand>("clear");
-    });
+    config.AddCommand<ListJwtCommand>("list")
+        .WithDescription("Lists all dev JWTs for the specified project");
+    config.AddCommand<CreateJwtCommand>("create")
+        .WithDescription("Creates a dev JWT for the specified project")
+        .WithExample(new[] { "create" })
+        .WithExample(new[] { "create", "-n testuser" });
+    config.AddCommand<PrintJwtCommand>("print")
+        .WithDescription("Prints the details of the specified dev JWT");
+    config.AddCommand<DeleteJwtCommand>("delete")
+        .WithDescription("Deletes the dev JWT with the specified ID in the specified project");
+    config.AddCommand<ClearJwtCommand>("clear")
+        .WithDescription("Deletes all dev JWTs for the specified project");
+    config.AddCommand<KeyCommand>("key")
+        .WithDescription("Prints the key used for signing dev JWTs for the specified project");
 });
 
 return app.Run(args);
@@ -49,6 +56,7 @@ public class JwtSettings : CommandSettings
     }
 
     [CommandOption("-p|--project <PROJECT>")]
+    [Description("The path of the project to operate on. Defaults to the project in the current directory.")]
     public string? Project { get; init; }
 
     public string User { get; init; }
@@ -156,6 +164,15 @@ public class ClearJwtSettings : JwtSettings
     }
 }
 
+public class KeySettings : JwtSettings
+{
+    public KeySettings(string? project)
+        : base(project)
+    {
+
+    }
+}
+
 public class ListJwtCommand : Command<ListJwtSettings>
 {
     public override int Execute([NotNull] CommandContext context, [NotNull] ListJwtSettings settings)
@@ -168,29 +185,20 @@ public class ListJwtCommand : Command<ListJwtSettings>
             return 1;
         }
 
-        //AnsiConsole.WriteLine($"Project file: {settings.Project}");
-        //AnsiConsole.WriteLine($"User secrets ID: {userSecretsId}");
-        //AnsiConsole.WriteLine($"Current user: {settings.User}");
-        //var projectConfiguration = new ConfigurationBuilder()
-        //    .AddUserSecrets(userSecretsId)
-        //    .Build();
-        //AnsiConsole.WriteLine(projectConfiguration.GetDebugView());
-
         var jwtStore = new JwtStore(userSecretsId);
+
+        var settingsTable = new Table();
+        settingsTable.ShowHeaders = false;
+        settingsTable.Border(TableBorder.None);
+        settingsTable.AddColumn("Name");
+        settingsTable.AddColumn("Value");
+        settingsTable.AddRow(new Markup("[grey]Project:[/]"), new TextPath(settings.Project!));
+        settingsTable.AddRow(new Markup("[grey]User Secrets ID:[/]"), new Text(userSecretsId));
+        AnsiConsole.Write(settingsTable);
+        AnsiConsole.WriteLine();
 
         if (jwtStore.Jwts is { Count: >0 } jwts)
         {
-            AnsiConsole.MarkupLine($"Dev JWTs");
-            var settingsTable = new Table();
-            settingsTable.ShowHeaders = false;
-            settingsTable.Border(TableBorder.None);
-            settingsTable.AddColumn("Name");
-            settingsTable.AddColumn("Value");
-            settingsTable.AddRow(new Markup("[grey]Project:[/]"), new TextPath(settings.Project!));
-            settingsTable.AddRow(new Markup("[grey]User Secrets ID:[/]"), new Text(userSecretsId));
-            AnsiConsole.Write(settingsTable);
-            AnsiConsole.WriteLine();
-
             var table = new Table();
             table.AddColumn("Id");
             table.AddColumn("Name");
@@ -237,8 +245,6 @@ public class CreateJwtCommand : Command<CreateJwtSettings>
 {
     public override int Execute([NotNull] CommandContext context, [NotNull] CreateJwtSettings settings)
     {
-        //AnsiConsole.WriteLine($"{context.Name}");
-
         var userSecretsId = DevJwtCliHelpers.GetUserSecretsId(settings.Project!);
 
         if (userSecretsId is null)
@@ -247,14 +253,11 @@ public class CreateJwtCommand : Command<CreateJwtSettings>
             return 1;
         }
 
-        //AnsiConsole.WriteLine($"Project file: {settings.Project}");
-        //AnsiConsole.WriteLine($"Current user: {settings.User}");
-
         var keyMaterial = DevJwtCliHelpers.GetOrCreateSigningKeyMaterial(userSecretsId);
 
         var jwtIssuer = new JwtIssuer(DevJwtsDefaults.Issuer, keyMaterial);
         // TODO: Build claims dictionary from command options
-        var jwt = jwtIssuer.Create(settings.Name, settings.Audience);
+        var jwt = jwtIssuer.Create(settings.Name, settings.Audience!);
         var jwtStore = new JwtStore(userSecretsId);
         jwtStore.Jwts.Add(jwt.Id, jwt);
         jwtStore.Save();
@@ -390,6 +393,36 @@ public class ClearJwtCommand : Command<ClearJwtSettings>
     }
 }
 
+public class KeyCommand : Command<KeySettings>
+{
+    public override int Execute([NotNull] CommandContext context, [NotNull] KeySettings settings)
+    {
+        var userSecretsId = DevJwtCliHelpers.GetUserSecretsId(settings.Project!);
+
+        if (userSecretsId is null)
+        {
+            AnsiConsole.MarkupLine("[red]Error:[/] The specified project does not have a user secrets ID configured. Set a user secrets ID by running the command [yello]'dotnet user-secrets init'[/].");
+            return 1;
+        }
+
+        DevJwtCliHelpers.PrintProjectDetails(settings.Project!, userSecretsId);
+
+        var projectConfiguration = new ConfigurationBuilder()
+            .AddUserSecrets(userSecretsId)
+            .Build();
+        var signingKeyMaterial = projectConfiguration[DevJwtsDefaults.SigningKeyConfigurationKey];
+
+        if (signingKeyMaterial is null)
+        {
+            AnsiConsole.MarkupLine("Signing key for dev JWTs was not found. One will be created automatically when the first JWT is created.");
+            return 0;
+        }
+
+        AnsiConsole.MarkupLineInterpolated($"[grey]Signing Key:[/] {signingKeyMaterial}");
+        return 0;
+    }
+}
+
 internal static class DevJwtCliHelpers
 {
     public static string? GetUserSecretsId(string projectFilePath)
@@ -436,6 +469,19 @@ internal static class DevJwtCliHelpers
         JsonSerializer.Serialize(secretsFileStream, secrets);
 
         return newKeyMaterial;
+    }
+
+    public static void PrintProjectDetails(string projectPath, string userSecretsId)
+    {
+        var settingsTable = new Table();
+        settingsTable.ShowHeaders = false;
+        settingsTable.Border(TableBorder.None);
+        settingsTable.AddColumn("Name");
+        settingsTable.AddColumn("Value");
+        settingsTable.AddRow(new Markup("[grey]Project:[/]"), new TextPath(projectPath));
+        settingsTable.AddRow(new Markup("[grey]User Secrets ID:[/]"), new Text(userSecretsId));
+        AnsiConsole.Write(settingsTable);
+        AnsiConsole.WriteLine();
     }
 
     public static void PrintJwt(Jwt jwt)
