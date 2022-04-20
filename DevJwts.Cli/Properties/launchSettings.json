@@ -2,7 +2,7 @@
   "profiles": {
     "DevJwts.Cli": {
       "commandName": "Project",
-      "commandLineArgs": "jwt print 40691ad1",
+      "commandLineArgs": "jwt list",
       "workingDirectory": "$(ProjectDir)../SampleWebApi"
     }
   }
