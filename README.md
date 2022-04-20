@@ -16,3 +16,4 @@ Experimenting with ideas associated with https://github.com/dotnet/aspnetcore/is
 1. Copy the JWT from the response
 1. Using a tool like Postman, make a POST request to `/protected` with your JWT in the authorization header
 
+![Animation](https://user-images.githubusercontent.com/249088/164313637-0ccb8bd4-2bda-4f19-aee1-1de7e391fefc.gif)
