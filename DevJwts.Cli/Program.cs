@@ -62,7 +62,7 @@ public class JwtSettings : CommandSettings
             return ValidationResult.Error($"A project could not be found or there were multiple projects in the current directory. Specify a project using the project option.");
         }
 
-        return ValidationResult.Success();
+        return base.Validate();
     }
 }
 
@@ -102,7 +102,7 @@ public class CreateJwtSettings : JwtSettings
     {
         return Name is null or { Length: <1 }
             ? ValidationResult.Error("Current user name could not be determined, please specify a name for the JWT using the name option")
-            : ValidationResult.Success();
+            : base.Validate();
     }
 }
 
@@ -117,6 +117,13 @@ public class PrintJwtSettings : JwtSettings
     [CommandArgument(0, "[id]")]
     [Description("The ID of the JWT to print")]
     public string Id { get; }
+
+    public override ValidationResult Validate()
+    {
+        return Id is null or { Length: < 1 }
+            ? ValidationResult.Error("ID was not specified, please specify the ID of a JWT to print")
+            : base.Validate();
+    }
 }
 
 public class ListJwtCommand : Command<ListJwtSettings>
@@ -192,7 +199,7 @@ public class ListJwtCommand : Command<ListJwtSettings>
 
     public override ValidationResult Validate([NotNull] CommandContext context, [NotNull] ListJwtSettings settings)
     {
-        return settings.Validate();
+        return base.Validate(context, settings);
     }
 }
 
@@ -230,7 +237,7 @@ public class CreateJwtCommand : Command<CreateJwtSettings>
 
     public override ValidationResult Validate([NotNull] CommandContext context, [NotNull] CreateJwtSettings settings)
     {
-        return settings.Validate();
+        return base.Validate(context, settings);
     }
 }
 
@@ -251,6 +258,10 @@ public class PrintJwtCommand : Command<PrintJwtSettings>
         if (!jwtStore.Jwts.ContainsKey(settings.Id))
         {
             AnsiConsole.MarkupLineInterpolated($"[red bold]Error:[/] The JWT with ID [yellow]{settings.Id}[/] was not found");
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine("Use the [yellow]list[/] command to list all JWTs for this project");
+            AnsiConsole.Markup("[grey]Project:[/] ");
+            AnsiConsole.Write(new TextPath(settings.Project!));
             return 1;
         }
 
@@ -258,6 +269,11 @@ public class PrintJwtCommand : Command<PrintJwtSettings>
         DevJwtCliHelpers.PrintJwt(jwtStore.Jwts[settings.Id]);
 
         return 0;
+    }
+
+    public override ValidationResult Validate([NotNull] CommandContext context, [NotNull] PrintJwtSettings settings)
+    {
+        return settings.Validate();
     }
 }
 
