@@ -21,6 +21,8 @@ app.Configure(config =>
         jwt.AddCommand<ListJwtCommand>("list");
         jwt.AddCommand<CreateJwtCommand>("create");
         jwt.AddCommand<PrintJwtCommand>("print");
+        jwt.AddCommand<DeleteJwtCommand>("delete");
+        jwt.AddCommand<ClearJwtCommand>("clear");
     });
 });
 
@@ -85,15 +87,14 @@ public class CreateJwtSettings : JwtSettings
         : base(project)
     {
         Name = name ?? User;
-        // TODO: Revisit how to set default audience, e.g. reading from project launchSettings.json file to get applicationUrl
-        Audience = audience ?? "https://localhost:5001";
+        Audience = audience ?? DevJwtCliHelpers.GetApplicationUrl(Project!);
     }
 
     [CommandOption("-n|--name <NAME>")]
     public string Name { get; init; }
 
     [CommandOption("-a|--audience <AUDIENCE>")]
-    public string Audience { get; init; }
+    public string? Audience { get; init; }
 
     [CommandOption("-c|--claim <CLAIM>")]
     public string[]? Claims { get; init; }
@@ -123,6 +124,35 @@ public class PrintJwtSettings : JwtSettings
         return Id is null or { Length: < 1 }
             ? ValidationResult.Error("ID was not specified, please specify the ID of a JWT to print")
             : base.Validate();
+    }
+}
+
+public class DeleteJwtSettings : JwtSettings
+{
+    public DeleteJwtSettings(string? project, string id)
+        : base(project)
+    {
+        Id = id;
+    }
+
+    [CommandArgument(0, "[id]")]
+    [Description("The ID of the JWT to delete")]
+    public string Id { get; }
+
+    public override ValidationResult Validate()
+    {
+        return Id is null or { Length: < 1 }
+            ? ValidationResult.Error("ID was not specified, please specify the ID of a JWT to delete")
+            : base.Validate();
+    }
+}
+
+public class ClearJwtSettings : JwtSettings
+{
+    public ClearJwtSettings(string? project)
+        : base(project)
+    {
+
     }
 }
 
@@ -277,6 +307,89 @@ public class PrintJwtCommand : Command<PrintJwtSettings>
     }
 }
 
+public class DeleteJwtCommand : Command<DeleteJwtSettings>
+{
+    public override int Execute([NotNull] CommandContext context, [NotNull] DeleteJwtSettings settings)
+    {
+        var userSecretsId = DevJwtCliHelpers.GetUserSecretsId(settings.Project!);
+
+        if (userSecretsId is null)
+        {
+            AnsiConsole.MarkupLine("[red]Error:[/] The specified project does not have a user secrets ID configured. Set a user secrets ID by running the command [yello]'dotnet user-secrets init'[/].");
+            return 1;
+        }
+
+        var jwtStore = new JwtStore(userSecretsId);
+
+        if (!jwtStore.Jwts.ContainsKey(settings.Id))
+        {
+            AnsiConsole.MarkupLineInterpolated($"[red bold]Error:[/] The JWT with ID [yellow]{settings.Id}[/] was not found");
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine("Use the [yellow]list[/] command to list all JWTs for this project");
+            AnsiConsole.Markup("[grey]Project:[/] ");
+            AnsiConsole.Write(new TextPath(settings.Project!));
+            return 1;
+        }
+
+        jwtStore.Jwts.Remove(settings.Id);
+        jwtStore.Save();
+
+        AnsiConsole.MarkupLineInterpolated($"[green]Deleted JWT with ID[/] [yellow]{settings.Id}[/]");
+
+        return 0;
+    }
+
+    public override ValidationResult Validate([NotNull] CommandContext context, [NotNull] DeleteJwtSettings settings)
+    {
+        return settings.Validate();
+    }
+}
+
+public class ClearJwtCommand : Command<ClearJwtSettings>
+{
+    public override int Execute([NotNull] CommandContext context, [NotNull] ClearJwtSettings settings)
+    {
+        var userSecretsId = DevJwtCliHelpers.GetUserSecretsId(settings.Project!);
+
+        if (userSecretsId is null)
+        {
+            AnsiConsole.MarkupLine("[red]Error:[/] The specified project does not have a user secrets ID configured. Set a user secrets ID by running the command [yello]'dotnet user-secrets init'[/].");
+            return 1;
+        }
+
+        var jwtStore = new JwtStore(userSecretsId);
+        var count = jwtStore.Jwts.Count;
+
+        AnsiConsole.Markup($"[grey]Project:[/] ");
+        AnsiConsole.Write(new TextPath(settings.Project!));
+        AnsiConsole.WriteLine();
+
+        if (count == 0)
+        {
+            AnsiConsole.MarkupLine("There are no JWTs to delete");
+            return 0;
+        }
+
+        if (!AnsiConsole.Confirm($"Are you sure you want to delete {count} JWT(s) for this project?"))
+        {
+            AnsiConsole.MarkupLine("Cancelled, no JWTs were deleted");
+            return 0;
+        }
+
+        jwtStore.Jwts.Clear();
+        jwtStore.Save();
+
+        AnsiConsole.MarkupLineInterpolated($"[green]Deleted[/] [yellow]{count}[/] JWT(s) successfully");
+
+        return 0;
+    }
+
+    public override ValidationResult Validate([NotNull] CommandContext context, [NotNull] ClearJwtSettings settings)
+    {
+        return settings.Validate();
+    }
+}
+
 internal static class DevJwtCliHelpers
 {
     public static string? GetUserSecretsId(string projectFilePath)
@@ -340,6 +453,50 @@ internal static class DevJwtCliHelpers
         AnsiConsole.Write(table);
         AnsiConsole.MarkupLine("[bold grey]Token:[/]");
         Console.WriteLine(jwt.Token);
+    }
+
+    public static string GetApplicationUrl(string project)
+    {
+        // TODO: Figure out what to do if no HTTPS addresses exist
+        // TODO: Handle error cases, missing properties/content, etc.
+        var launchSettingsFilePath = Path.Combine(Path.GetDirectoryName(project)!, "Properties", "launchSettings.json");
+        if (File.Exists(launchSettingsFilePath))
+        {
+            using var launchSettingsFileStream = new FileStream(launchSettingsFilePath, FileMode.Open, FileAccess.Read);
+            if (launchSettingsFileStream.Length > 0)
+            {
+                var launchSettingsJson = JsonDocument.Parse(launchSettingsFileStream);
+                if (launchSettingsJson.RootElement.TryGetProperty("profiles", out var profiles))
+                {
+                    var profilesEnumerator = profiles.EnumerateObject();
+                    foreach (var profile in profilesEnumerator)
+                    {
+                        if (profile.Value.TryGetProperty("commandName", out var commandName))
+                        {
+                            if (commandName.ValueEquals("Project"))
+                            {
+                                if (profile.Value.TryGetProperty("applicationUrl", out var applicationUrl))
+                                {
+                                    var value = applicationUrl.GetString();
+                                    if (value is { } applicationUrls)
+                                    {
+                                        var urls = applicationUrls.Split(";");
+                                        var firstHttpsUrl = urls.FirstOrDefault(u => u.StartsWith("https:"));
+                                        if (firstHttpsUrl is { } result)
+                                        {
+                                            return result;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Kestrel default
+        return "https://localhost:5001";
     }
 }
 
@@ -406,7 +563,10 @@ public class JwtStore
         if (File.Exists(_filePath))
         {
             using var fileStream = new FileStream(_filePath, FileMode.Open, FileAccess.Read);
-            Jwts = JsonSerializer.Deserialize<IDictionary<string, Jwt>>(fileStream, _jsonSerializerOptions) ?? new Dictionary<string, Jwt>();
+            if (fileStream.Length > 0)
+            {
+                Jwts = JsonSerializer.Deserialize<IDictionary<string, Jwt>>(fileStream, _jsonSerializerOptions) ?? new Dictionary<string, Jwt>();
+            }
         }
     }
 
@@ -414,7 +574,7 @@ public class JwtStore
     {
         if (Jwts is not null)
         {
-            using var fileStream = new FileStream(_filePath, FileMode.OpenOrCreate, FileAccess.Write);
+            using var fileStream = new FileStream(_filePath, FileMode.Create, FileAccess.Write);
             JsonSerializer.Serialize<IDictionary<string, Jwt>>(fileStream, Jwts, _jsonSerializerOptions);
         }
     }
