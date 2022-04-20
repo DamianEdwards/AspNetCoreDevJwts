@@ -7,8 +7,6 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SampleWebApi", "SampleWebAp
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DevJwts.Lib", "DevJwts.Lib\DevJwts.Lib.csproj", "{BFDF3E8E-1A5A-4741-A352-B6785B1AE899}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "DevJwts.Utils", "DevJwts.Utils\DevJwts.Utils.csproj", "{915EE4CC-1AA3-4EAC-A403-3E31D0D02D44}"
-EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{C6A04C2E-A02C-4C40-8295-620C8620962B}"
 	ProjectSection(SolutionItems) = preProject
 		global.json = global.json
@@ -31,10 +29,6 @@ Global
 		{BFDF3E8E-1A5A-4741-A352-B6785B1AE899}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{BFDF3E8E-1A5A-4741-A352-B6785B1AE899}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{BFDF3E8E-1A5A-4741-A352-B6785B1AE899}.Release|Any CPU.Build.0 = Release|Any CPU
-		{915EE4CC-1AA3-4EAC-A403-3E31D0D02D44}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{915EE4CC-1AA3-4EAC-A403-3E31D0D02D44}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{915EE4CC-1AA3-4EAC-A403-3E31D0D02D44}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{915EE4CC-1AA3-4EAC-A403-3E31D0D02D44}.Release|Any CPU.Build.0 = Release|Any CPU
 		{70283135-2366-4828-A7B7-27C159840D1B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{70283135-2366-4828-A7B7-27C159840D1B}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{70283135-2366-4828-A7B7-27C159840D1B}.Release|Any CPU.ActiveCfg = Release|Any CPU
