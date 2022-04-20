@@ -25,15 +25,13 @@ public class DevJwtsConfigureOptions : IConfigureOptions<JwtBearerOptions>, ICon
 
     public SecurityKey? SigningKey { get; }
 
-    public static string Issuer => "AspNetCoreDevJwt";
-
     public void Configure(JwtBearerOptions options)
     {
         var addresses = _server.Features.Get<IServerAddressesFeature>();
         var firstHttps = addresses?.Addresses.First(a => a.StartsWith("https"));
         options.Audience = firstHttps ?? "https://localhost:5001";
-        options.ClaimsIssuer = Issuer;
-        options.TokenValidationParameters.ValidIssuer = Issuer;
+        options.ClaimsIssuer = DevJwtsDefaults.Issuer;
+        options.TokenValidationParameters.ValidIssuer = DevJwtsDefaults.Issuer;
         options.TokenValidationParameters.IssuerSigningKey = SigningKey;
     }
 
@@ -44,7 +42,7 @@ public class DevJwtsConfigureOptions : IConfigureOptions<JwtBearerOptions>, ICon
 
     private static SecurityKey GetSigningKey(IConfiguration configuration, ILogger logger)
     {
-        var jwtKeyMaterialSecret = configuration["AspNetCoreDevJwts:KeyMaterial"];
+        var jwtKeyMaterialSecret = configuration[DevJwtsDefaults.SigningKeyConfigurationKey];
         if (jwtKeyMaterialSecret is null)
         {
             logger.LogWarning(
