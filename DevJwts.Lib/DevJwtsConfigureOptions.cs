@@ -14,33 +14,35 @@ public class DevJwtsConfigureOptions : IConfigureNamedOptions<JwtBearerOptions>
     private readonly IConfiguration _configuration;
     private readonly IServer _server;
     private readonly ILogger<DevJwtsConfigureOptions> _logger;
-    private readonly SecurityKey[] _signingKeys;
 
     public DevJwtsConfigureOptions(IConfiguration configuration, IServer server, ILogger<DevJwtsConfigureOptions> logger)
     {
         _configuration = configuration;
         _server = server;
         _logger = logger;
-
-        // TODO: React to key changing while app is running?
-        _signingKeys = new[] { GetSigningKey(_configuration, _logger) };
     }
 
     public void Configure(JwtBearerOptions options)
     {
-        var addresses = _server.Features.Get<IServerAddressesFeature>();
-        var firstHttps = addresses?.Addresses.First(a => a.StartsWith("https"));
-        options.Audience = firstHttps ?? throw new InvalidOperationException("Audience: What to do when there's no HTTPS address?");
-        options.ClaimsIssuer = DevJwtsDefaults.Issuer;
-        options.TokenValidationParameters.ValidIssuers = options.TokenValidationParameters.ValidIssuers?.Concat(_devJwtIssuers) ?? _devJwtIssuers;
-        options.TokenValidationParameters.IssuerSigningKeys = options.TokenValidationParameters.IssuerSigningKeys?.Concat(_signingKeys) ?? _signingKeys;
-        options.TokenValidationParameters.ValidateIssuer = true;
-        options.TokenValidationParameters.ValidateAudience = true;
+
     }
 
     public void Configure(string? name, JwtBearerOptions options)
     {
-        Configure(options);
+        if (string.Equals(name, JwtBearerDefaults.AuthenticationScheme, StringComparison.Ordinal))
+        {
+            var addresses = _server.Features.Get<IServerAddressesFeature>();
+            var httpsAddresses = addresses?.Addresses.Where(a => a.StartsWith("https")).ToList() ??
+                throw new InvalidOperationException("Audience: What to do when there's no HTTPS address?");
+            // TODO: React to key changing while app is running?
+            var signingKeys = new[] { GetSigningKey(_configuration, _logger) };
+            options.ClaimsIssuer = DevJwtsDefaults.Issuer;
+            options.TokenValidationParameters.ValidAudiences = options.TokenValidationParameters.ValidAudiences?.Concat(httpsAddresses) ?? httpsAddresses;
+            options.TokenValidationParameters.ValidIssuers = options.TokenValidationParameters.ValidIssuers?.Concat(_devJwtIssuers) ?? _devJwtIssuers;
+            options.TokenValidationParameters.IssuerSigningKeys = options.TokenValidationParameters.IssuerSigningKeys?.Concat(signingKeys) ?? signingKeys;
+            options.TokenValidationParameters.ValidateIssuer = true;
+            options.TokenValidationParameters.ValidateAudience = true;
+        }
     }
 
     private static SecurityKey GetSigningKey(IConfiguration configuration, ILogger logger)
