@@ -20,6 +20,7 @@ public class DevJwtsConfigureOptions : IConfigureOptions<JwtBearerOptions>, ICon
         _server = server;
         _logger = logger;
 
+        // TODO: React to key changing while app is running?
         SigningKey = GetSigningKey(_configuration, _logger);
     }
 
