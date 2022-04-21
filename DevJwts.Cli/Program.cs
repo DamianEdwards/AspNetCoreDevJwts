@@ -13,10 +13,10 @@ using Spectre.Console;
 using Spectre.Console.Cli;
 
 var app = new CommandApp();
-app.Configure(config => config.SetApplicationName("dev-jwts"));
 
 app.Configure(config =>
 {
+    config.SetApplicationName("dev-jwts");
     config.AddCommand<ListJwtCommand>("list")
         .WithDescription("Lists all dev JWTs for the specified project");
     config.AddCommand<CreateJwtCommand>("create")
@@ -32,162 +32,30 @@ app.Configure(config =>
         .WithExample(new[] { "delete", "caa676ee" });
     config.AddCommand<ClearJwtCommand>("clear")
         .WithDescription("Deletes all dev JWTs for the specified project")
-        .WithExample(new[] { "clear" });
+        .WithExample(new[] { "clear" })
+        .WithExample(new[] { "clear --force" }); ;
     config.AddCommand<KeyCommand>("key")
         .WithDescription("Prints the key used for signing dev JWTs for the specified project");
 });
 
 return app.Run(args);
 
-public class JwtSettings : CommandSettings
+public class ListJwtCommand : Command<ListJwtCommand.Settings>
 {
-    public JwtSettings(string? project)
+    public class Settings : JwtSettings
     {
-        User = Environment.UserName;
-
-        if (project is not null)
+        public Settings(string? project)
+            : base(project)
         {
-            Project = Path.GetFullPath(project);
-        }
-        else
-        {
-            var csprojFiles = Directory.GetFiles(Directory.GetCurrentDirectory(), "*.csproj");
-            if (csprojFiles is [var path])
-            {
-                Project = path;
-            }
-        }
-    }
 
-    [CommandOption("-p|--project <PROJECT>")]
-    [Description("The path of the project to operate on. Defaults to the project in the current directory.")]
-    public string? Project { get; init; }
-
-    public string User { get; init; }
-
-    public override ValidationResult Validate()
-    {
-        if (Project is { } project && !File.Exists(project))
-        {
-            return ValidationResult.Error($"Project {project} could not be found");
-        }
-        else if (Project is null)
-        {
-            return ValidationResult.Error($"A project could not be found or there were multiple projects in the current directory. Specify a project using the project option.");
         }
 
-        return base.Validate();
-    }
-}
-
-public class ListJwtSettings : JwtSettings
-{
-    public ListJwtSettings(string? project)
-        : base(project)
-    {
-
+        [CommandOption("--show-tokens")]
+        [Description("Indicates whether JWT base64 strings should be shown")]
+        public bool? ShowTokens { get; set; }
     }
 
-    [CommandOption("--show-tokens")]
-    [Description("Indicates whether JWT base64 strings should be shown")]
-    public bool? ShowTokens { get; set; }
-}
-
-public class CreateJwtSettings : JwtSettings
-{
-    public CreateJwtSettings(string? project, string? name, string? audience)
-        : base(project)
-    {
-        Name = name ?? User;
-        Audience = audience ?? DevJwtCliHelpers.GetApplicationUrl(Project!);
-    }
-
-    [CommandOption("-n|--name <NAME>")]
-    public string Name { get; init; }
-
-    [CommandOption("-a|--audience <AUDIENCE>")]
-    public string? Audience { get; init; }
-
-    [CommandOption("-c|--claim <CLAIM>")]
-    [Description("Claims to add to the JWT. Specify once for each claim in the format \"name=value\".")]
-    public string[]? Claims { get; init; }
-
-    public override ValidationResult Validate()
-    {
-        if (Name is null or { Length: < 1 })
-        {
-            return ValidationResult.Error("Current user name could not be determined, please specify a name for the JWT using the name option");
-        }
-
-        return base.Validate();
-    }
-}
-
-public class PrintJwtSettings : JwtSettings
-{
-    public PrintJwtSettings(string? project, string id)
-        : base(project)
-    {
-        Id = id;
-    }
-
-    [CommandArgument(0, "[id]")]
-    [Description("The ID of the JWT to print")]
-    public string Id { get; }
-
-    public override ValidationResult Validate()
-    {
-        return Id is null or { Length: < 1 }
-            ? ValidationResult.Error("ID was not specified, please specify the ID of a JWT to print")
-            : base.Validate();
-    }
-}
-
-public class DeleteJwtSettings : JwtSettings
-{
-    public DeleteJwtSettings(string? project, string id)
-        : base(project)
-    {
-        Id = id;
-    }
-
-    [CommandArgument(0, "[id]")]
-    [Description("The ID of the JWT to delete")]
-    public string Id { get; }
-
-    public override ValidationResult Validate()
-    {
-        return Id is null or { Length: < 1 }
-            ? ValidationResult.Error("ID was not specified, please specify the ID of a JWT to delete")
-            : base.Validate();
-    }
-}
-
-public class ClearJwtSettings : JwtSettings
-{
-    public ClearJwtSettings(string? project)
-        : base(project)
-    {
-
-    }
-
-    [CommandOption("-f|--force")]
-    [Description("Don't prompt for approval before deleting JWTs")]
-    public bool? Force { get; set; }
-}
-
-public class KeySettings : JwtSettings
-{
-    public KeySettings(string? project)
-        : base(project)
-    {
-
-    }
-}
-
-public class ListJwtCommand : Command<ListJwtSettings>
-{
-    public override int Execute([NotNull] CommandContext context, [NotNull] ListJwtSettings settings)
+    public override int Execute([NotNull] CommandContext context, [NotNull] Settings settings)
     {
         var userSecretsId = DevJwtCliHelpers.GetUserSecretsId(settings.Project!);
 
@@ -247,17 +115,49 @@ public class ListJwtCommand : Command<ListJwtSettings>
         return 0;
     }
 
-    public override ValidationResult Validate([NotNull] CommandContext context, [NotNull] ListJwtSettings settings)
+    public override ValidationResult Validate([NotNull] CommandContext context, [NotNull] Settings settings)
     {
         return base.Validate(context, settings);
     }
 }
 
-public class CreateJwtCommand : Command<CreateJwtSettings>
+public class CreateJwtCommand : Command<CreateJwtCommand.Settings>
 {
+    public class Settings : JwtSettings
+    {
+        public Settings(string? project, string? name, string? audience)
+            : base(project)
+        {
+            Name = name ?? User;
+            Audience = audience ?? DevJwtCliHelpers.GetApplicationUrl(Project!);
+        }
+
+        [CommandOption("-n|--name <NAME>")]
+        [Description("The name of the user to create the dev JWT for. Defaults to the current environment user.")]
+        public string Name { get; init; }
+
+        [CommandOption("-a|--audience <AUDIENCE>")]
+        [Description("The audience to create the dev JWT for")]
+        public string? Audience { get; init; }
+
+        [CommandOption("-c|--claim <CLAIM>")]
+        [Description("Claims to add to the JWT. Specify once for each claim in the format \"name=value\".")]
+        public string[]? Claims { get; init; }
+
+        public override ValidationResult Validate()
+        {
+            if (Name is null or { Length: < 1 })
+            {
+                return ValidationResult.Error("Current user name could not be determined, please specify a name for the JWT using the name option");
+            }
+
+            return base.Validate();
+        }
+    }
+
     public IDictionary<string, string>? Claims { get; set; }
 
-    public override int Execute([NotNull] CommandContext context, [NotNull] CreateJwtSettings settings)
+    public override int Execute([NotNull] CommandContext context, [NotNull] Settings settings)
     {
         var userSecretsId = DevJwtCliHelpers.GetUserSecretsId(settings.Project!);
 
@@ -281,7 +181,7 @@ public class CreateJwtCommand : Command<CreateJwtSettings>
         return 0;
     }
 
-    public override ValidationResult Validate([NotNull] CommandContext context, [NotNull] CreateJwtSettings settings)
+    public override ValidationResult Validate([NotNull] CommandContext context, [NotNull] Settings settings)
     {
         var settingsResult = settings.Validate();
         if (!settingsResult.Successful)
@@ -303,9 +203,29 @@ public class CreateJwtCommand : Command<CreateJwtSettings>
     }
 }
 
-public class PrintJwtCommand : Command<PrintJwtSettings>
+public class PrintJwtCommand : Command<PrintJwtCommand.Settings>
 {
-    public override int Execute([NotNull] CommandContext context, [NotNull] PrintJwtSettings settings)
+    public class Settings : JwtSettings
+    {
+        public Settings(string? project, string id)
+            : base(project)
+        {
+            Id = id;
+        }
+
+        [CommandArgument(0, "[id]")]
+        [Description("The ID of the JWT to print")]
+        public string Id { get; }
+
+        public override ValidationResult Validate()
+        {
+            return Id is null or { Length: < 1 }
+                ? ValidationResult.Error("ID was not specified, please specify the ID of a JWT to print")
+                : base.Validate();
+        }
+    }
+
+    public override int Execute([NotNull] CommandContext context, [NotNull] Settings settings)
     {
         var userSecretsId = DevJwtCliHelpers.GetUserSecretsId(settings.Project!);
 
@@ -333,15 +253,35 @@ public class PrintJwtCommand : Command<PrintJwtSettings>
         return 0;
     }
 
-    public override ValidationResult Validate([NotNull] CommandContext context, [NotNull] PrintJwtSettings settings)
+    public override ValidationResult Validate([NotNull] CommandContext context, [NotNull] Settings settings)
     {
         return settings.Validate();
     }
 }
 
-public class DeleteJwtCommand : Command<DeleteJwtSettings>
+public class DeleteJwtCommand : Command<DeleteJwtCommand.Settings>
 {
-    public override int Execute([NotNull] CommandContext context, [NotNull] DeleteJwtSettings settings)
+    public class Settings : JwtSettings
+    {
+        public Settings(string? project, string id)
+            : base(project)
+        {
+            Id = id;
+        }
+
+        [CommandArgument(0, "[id]")]
+        [Description("The ID of the JWT to delete")]
+        public string Id { get; }
+
+        public override ValidationResult Validate()
+        {
+            return Id is null or { Length: < 1 }
+                ? ValidationResult.Error("ID was not specified, please specify the ID of a JWT to delete")
+                : base.Validate();
+        }
+    }
+
+    public override int Execute([NotNull] CommandContext context, [NotNull] Settings settings)
     {
         var userSecretsId = DevJwtCliHelpers.GetUserSecretsId(settings.Project!);
 
@@ -371,15 +311,28 @@ public class DeleteJwtCommand : Command<DeleteJwtSettings>
         return 0;
     }
 
-    public override ValidationResult Validate([NotNull] CommandContext context, [NotNull] DeleteJwtSettings settings)
+    public override ValidationResult Validate([NotNull] CommandContext context, [NotNull] Settings settings)
     {
         return settings.Validate();
     }
 }
 
-public class ClearJwtCommand : Command<ClearJwtSettings>
+public class ClearJwtCommand : Command<ClearJwtCommand.Settings>
 {
-    public override int Execute([NotNull] CommandContext context, [NotNull] ClearJwtSettings settings)
+    public class Settings : JwtSettings
+    {
+        public Settings(string? project)
+            : base(project)
+        {
+
+        }
+
+        [CommandOption("-f|--force")]
+        [Description("Don't prompt for approval before deleting JWTs")]
+        public bool? Force { get; set; }
+    }
+
+    public override int Execute([NotNull] CommandContext context, [NotNull] Settings settings)
     {
         var userSecretsId = DevJwtCliHelpers.GetUserSecretsId(settings.Project!);
 
@@ -416,15 +369,26 @@ public class ClearJwtCommand : Command<ClearJwtSettings>
         return 0;
     }
 
-    public override ValidationResult Validate([NotNull] CommandContext context, [NotNull] ClearJwtSettings settings)
+    public override ValidationResult Validate([NotNull] CommandContext context, [NotNull] Settings settings)
     {
         return settings.Validate();
     }
 }
 
-public class KeyCommand : Command<KeySettings>
+public class KeyCommand : Command<KeyCommand.Settings>
 {
-    public override int Execute([NotNull] CommandContext context, [NotNull] KeySettings settings)
+    public class Settings : JwtSettings
+    {
+        public Settings(string? project)
+            : base(project)
+        {
+
+        }
+
+        // TODO: Add option for deleting/cycling key (Maybe on clear command too?)
+    }
+
+    public override int Execute([NotNull] CommandContext context, [NotNull] Settings settings)
     {
         var userSecretsId = DevJwtCliHelpers.GetUserSecretsId(settings.Project!);
 
@@ -449,6 +413,48 @@ public class KeyCommand : Command<KeySettings>
 
         AnsiConsole.MarkupLineInterpolated($"[grey]Signing Key:[/] {signingKeyMaterial}");
         return 0;
+    }
+}
+
+public class JwtSettings : CommandSettings
+{
+    public JwtSettings(string? project)
+    {
+        User = Environment.UserName;
+
+        if (project is not null)
+        {
+            Project = Path.GetFullPath(project);
+        }
+        else
+        {
+            // TODO: Support vbproj & fsproj too
+            var csprojFiles = Directory.GetFiles(Directory.GetCurrentDirectory(), "*.csproj");
+            if (csprojFiles is [var path])
+            {
+                Project = path;
+            }
+        }
+    }
+
+    [CommandOption("-p|--project <PROJECT>")]
+    [Description("The path of the project to operate on. Defaults to the project in the current directory.")]
+    public string? Project { get; init; }
+
+    public string User { get; init; }
+
+    public override ValidationResult Validate()
+    {
+        if (Project is { } project && !File.Exists(project))
+        {
+            return ValidationResult.Error($"Project {project} could not be found");
+        }
+        else if (Project is null)
+        {
+            return ValidationResult.Error($"A project could not be found or there were multiple projects in the current directory. Specify a project using the project option.");
+        }
+
+        return base.Validate();
     }
 }
 

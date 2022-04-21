@@ -33,6 +33,9 @@ public class DevJwtsConfigureOptions : IConfigureOptions<JwtBearerOptions>, ICon
         options.ClaimsIssuer = DevJwtsDefaults.Issuer;
         options.TokenValidationParameters.ValidIssuer = DevJwtsDefaults.Issuer;
         options.TokenValidationParameters.IssuerSigningKey = SigningKey;
+        // TODO: Should we bother validating issuer and audience for dev JWTs?
+        options.TokenValidationParameters.ValidateIssuer = true;
+        options.TokenValidationParameters.ValidateAudience = true;
     }
 
     public void Configure(string? name, JwtBearerOptions options)

@@ -26,7 +26,6 @@ public static class DevJwtsBuilderExtensions
         {
             builder.Services.AddSingleton<IConfigureOptions<JwtBearerOptions>, DevJwtsConfigureOptions>();
             builder.Services.AddSingleton<IConfigureNamedOptions<JwtBearerOptions>, DevJwtsConfigureOptions>();
-            builder.Services.AddSingleton<IStartupFilter, DevJwtsStartupFilter>();
             builder.Services.Configure<AuthenticationOptions>(c => c.DefaultScheme = builder.DefaultScheme ?? JwtBearerDefaults.AuthenticationScheme);
             builder.AddJwtBearer();
         }
