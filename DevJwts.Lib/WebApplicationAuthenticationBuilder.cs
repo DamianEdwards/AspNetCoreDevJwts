@@ -55,7 +55,14 @@ public class WebApplicationAuthenticationBuilder : AuthenticationBuilder
             Services.AddSingleton<IConfigureNamedOptions<JwtBearerOptions>, DevJwtsConfigureOptions>();
             if (DefaultScheme is null)
             {
-                Services.Configure<AuthenticationOptions>(c => c.DefaultScheme = JwtBearerDefaults.AuthenticationScheme);
+                Services.PostConfigureAll<AuthenticationOptions>(c =>
+                {
+                    if (c.Schemes.SingleOrDefault() is { Name: JwtBearerDefaults.AuthenticationScheme } scheme && scheme.HandlerType == typeof(JwtBearerHandler))
+                    {
+                        // Set the default scheme to JwtBearer if it's the only scheme registered
+                        c.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
+                    }
+                });
             }
         }
 
