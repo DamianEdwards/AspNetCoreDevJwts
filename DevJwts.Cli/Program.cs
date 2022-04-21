@@ -738,8 +738,7 @@ internal static class DevJwtCliHelpers
             }
         }
 
-        // Kestrel default
-        return "https://localhost:5001";
+        throw new InvalidOperationException("Audience: What to do when we can't determine the project's HTTPS address?");
     }
 
     public static bool TryParseClaims(string[] input, out IDictionary<string, string> claims)

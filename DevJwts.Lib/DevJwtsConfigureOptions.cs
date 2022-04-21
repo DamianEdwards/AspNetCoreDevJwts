@@ -30,7 +30,7 @@ public class DevJwtsConfigureOptions : IConfigureOptions<JwtBearerOptions>, ICon
     {
         var addresses = _server.Features.Get<IServerAddressesFeature>();
         var firstHttps = addresses?.Addresses.First(a => a.StartsWith("https"));
-        options.Audience = firstHttps ?? "https://localhost:5001";
+        options.Audience = firstHttps ?? throw new InvalidOperationException("Audience: What to do when there's no HTTPS address?");
         options.ClaimsIssuer = DevJwtsDefaults.Issuer;
         options.TokenValidationParameters.ValidIssuer = DevJwtsDefaults.Issuer;
         options.TokenValidationParameters.IssuerSigningKey = SigningKey;
