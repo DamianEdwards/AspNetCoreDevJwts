@@ -171,7 +171,9 @@ public class ClearJwtSettings : JwtSettings
 
     }
 
-    // TODO: Add setting to ignore prompt, e.g. -f|--force
+    [CommandOption("-f|--force")]
+    [Description("Don't prompt for approval before deleting JWTs")]
+    public bool? Force { get; set; }
 }
 
 public class KeySettings : JwtSettings
@@ -400,7 +402,7 @@ public class ClearJwtCommand : Command<ClearJwtSettings>
             return 0;
         }
 
-        if (!AnsiConsole.Confirm($"Are you sure you want to delete {count} JWT(s) for this project?"))
+        if (settings.Force != true && !AnsiConsole.Confirm($"Are you sure you want to delete {count} JWT(s) for this project?"))
         {
             AnsiConsole.MarkupLine("Cancelled, no JWTs were deleted");
             return 0;
