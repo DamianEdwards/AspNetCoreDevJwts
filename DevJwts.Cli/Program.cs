@@ -444,7 +444,7 @@ public class ClearJwtCommand : Command<ClearJwtCommand.Settings>
         }
 
         [CommandOption("-f|--force")]
-        [Description("Don't prompt for approval before deleting JWTs")]
+        [Description("Don't prompt for confirmation before deleting JWTs")]
         public bool? Force { get; set; }
     }
 
@@ -471,7 +471,7 @@ public class ClearJwtCommand : Command<ClearJwtCommand.Settings>
             return 0;
         }
 
-        if (settings.Force != true && !AnsiConsole.Confirm($"Are you sure you want to delete {count} JWT(s) for this project?"))
+        if (settings.Force != true && !AnsiConsole.Confirm($"Are you sure you want to delete {count} JWT(s) for this project?", defaultValue: false))
         {
             AnsiConsole.MarkupLine("Cancelled, no JWTs were deleted");
             return 0;
@@ -501,7 +501,9 @@ public class KeyCommand : Command<KeyCommand.Settings>
 
         }
 
-        // TODO: Add option for deleting/cycling key (Maybe on clear command too?)
+        [CommandOption("--reset")]
+        [Description("Reset the signing key. This will invalidate all previously issued JWTs for this project.")]
+        public bool? Reset { get; set; }
     }
 
     public override int Execute([NotNull] CommandContext context, [NotNull] Settings settings)
@@ -515,6 +517,19 @@ public class KeyCommand : Command<KeyCommand.Settings>
         }
 
         DevJwtCliHelpers.PrintProjectDetails(settings.Project!, userSecretsId);
+
+        if (settings.Reset == true)
+        {
+            if (AnsiConsole.Confirm("Are you sure you want to reset the JWT signing key? This will invalidate all JWTs previously issued for this project.", defaultValue: false))
+            {
+                var key = DevJwtCliHelpers.CreateSigningKeyMaterial(userSecretsId, reset: true);
+                AnsiConsole.MarkupLineInterpolated($"[grey]New signing key created:[/] {Convert.ToBase64String(key)}");
+                return 0;
+            }
+
+            AnsiConsole.MarkupLine("Key reset cancelled.");
+            return 0;
+        }
 
         var projectConfiguration = new ConfigurationBuilder()
             .AddUserSecrets(userSecretsId)
@@ -589,7 +604,7 @@ internal static class DevJwtCliHelpers
         return existingUserSecretsId.Value;
     }
 
-    public static byte[] GetOrCreateSigningKeyMaterial(string userSecretsId)
+    public static byte[] GetOrCreateSigningKeyMaterial(string userSecretsId, bool reset = false)
     {
         var projectConfiguration = new ConfigurationBuilder()
             .AddUserSecrets(userSecretsId)
@@ -603,21 +618,35 @@ internal static class DevJwtCliHelpers
             return keyMaterial;
         }
 
+        return CreateSigningKeyMaterial(userSecretsId);
+    }
+
+    public static byte[] CreateSigningKeyMaterial(string userSecretsId, bool reset = false)
+    {
         // Create signing material and save to user secrets
         var newKeyMaterial = System.Security.Cryptography.RandomNumberGenerator.GetBytes(DevJwtsDefaults.SigningKeyLength);
         var secretsFilePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Microsoft", "UserSecrets", userSecretsId, "secrets.json");
-        using var secretsFileStream = new FileStream(secretsFilePath, FileMode.OpenOrCreate, FileAccess.ReadWrite);
-        IDictionary<string, string> secrets;
-        if (secretsFileStream.Length > 0)
+        
+        IDictionary<string, string>? secrets = null;
+        if (File.Exists(secretsFilePath))
         {
-            secrets = JsonSerializer.Deserialize<IDictionary<string, string>>(secretsFileStream) ?? new Dictionary<string, string>();
+            using var secretsFileStream = new FileStream(secretsFilePath, FileMode.Open, FileAccess.Read);
+            if (secretsFileStream.Length > 0)
+            {
+                secrets = JsonSerializer.Deserialize<IDictionary<string, string>>(secretsFileStream) ?? new Dictionary<string, string>();
+            }
         }
-        else
+
+        secrets ??= new Dictionary<string, string>();
+
+        if (reset && secrets.ContainsKey(DevJwtsDefaults.SigningKeyConfigurationKey))
         {
-            secrets = new Dictionary<string, string>();
+            secrets.Remove(DevJwtsDefaults.SigningKeyConfigurationKey);
         }
         secrets.Add(DevJwtsDefaults.SigningKeyConfigurationKey, Convert.ToBase64String(newKeyMaterial));
-        JsonSerializer.Serialize(secretsFileStream, secrets);
+        
+        using var secretsWriteStream = new FileStream(secretsFilePath, FileMode.OpenOrCreate, FileAccess.ReadWrite);
+        JsonSerializer.Serialize(secretsWriteStream, secrets);
 
         return newKeyMaterial;
     }
@@ -644,8 +673,9 @@ internal static class DevJwtCliHelpers
         table.AddRow(new Markup("[bold grey]Id:[/]"), new Text(jwt.Id));
         table.AddRow(new Markup("[bold grey]Name:[/]"), new Text(jwt.Name));
         table.AddRow(new Markup("[bold grey]Audience:[/]"), new Text(jwt.Audience));
-        table.AddRow(new Markup("[bold grey]Claims:[/]"), jwt.Claims?.Count > 0 ? new Rows(jwt.Claims.Select(kvp => new Text($"{kvp.Key}={kvp.Value}"))) : new Text(""));
+        table.AddRow(new Markup("[bold grey]Claims:[/]"), jwt.Claims?.Count > 0 ? new Rows(jwt.Claims.Select(kvp => new Text($"{kvp.Key}={kvp.Value}"))) : new Text("[none]"));
         table.AddRow(new Markup("[bold grey]Expires:[/]"), new Text(jwt.Expires.ToString("O")));
+        table.AddRow(new Markup("[bold grey]Issued:[/]"), new Text(jwt.Issued.ToString("O")));
         AnsiConsole.Write(table);
         AnsiConsole.MarkupLine("[bold grey]Token:[/]");
         Console.WriteLine(jwt.Token);
