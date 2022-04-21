@@ -17,23 +17,36 @@ var app = new CommandApp();
 app.Configure(config =>
 {
     config.SetApplicationName("dev-jwts");
+
+    config.AddExample(new[] { "create" });
+    config.AddExample(new[] { "create", "-n testuser", "--claim scope=myapi:read" });
+    config.AddExample(new[] { "list" });
+    config.AddExample(new[] { "delete", "caa676ee" });
+    config.AddExample(new[] { "clear" });
+
     config.AddCommand<ListJwtCommand>("list")
-        .WithDescription("Lists all dev JWTs for the specified project");
+        .WithDescription("Lists all dev JWTs for the specified project")
+        .WithExample(new[] { "list" });
+    
     config.AddCommand<CreateJwtCommand>("create")
         .WithDescription("Creates a dev JWT for the specified project")
         .WithExample(new[] { "create" })
         .WithExample(new[] { "create", "-n testuser" })
         .WithExample(new[] { "create", "-n testuser", "--claim scope=myapi:read" });
+    
     config.AddCommand<PrintJwtCommand>("print")
         .WithDescription("Prints the details of the specified dev JWT")
         .WithExample(new[] { "print", "caa676ee" });
+    
     config.AddCommand<DeleteJwtCommand>("delete")
         .WithDescription("Deletes the dev JWT with the specified ID in the specified project")
         .WithExample(new[] { "delete", "caa676ee" });
+    
     config.AddCommand<ClearJwtCommand>("clear")
         .WithDescription("Deletes all dev JWTs for the specified project")
         .WithExample(new[] { "clear" })
-        .WithExample(new[] { "clear --force" }); ;
+        .WithExample(new[] { "clear", "--force" }); ;
+    
     config.AddCommand<KeyCommand>("key")
         .WithDescription("Prints the key used for signing dev JWTs for the specified project");
 });
