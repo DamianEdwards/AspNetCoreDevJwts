@@ -2,6 +2,8 @@ using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// This would actually be like:
+// builder.Authentication.AddJwtBearer();
 builder.Authentication().AddDevJwtBearer();
 
 builder.Services.AddEndpointsApiExplorer();

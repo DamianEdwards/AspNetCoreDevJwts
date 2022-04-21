@@ -520,7 +520,7 @@ internal static class DevJwtCliHelpers
         table.AddRow(new Markup("[bold grey]Id:[/]"), new Text(jwt.Id));
         table.AddRow(new Markup("[bold grey]Name:[/]"), new Text(jwt.Name));
         table.AddRow(new Markup("[bold grey]Audience:[/]"), new Text(jwt.Audience));
-        table.AddRow(new Markup("[bold grey]Claims:[/]"), jwt.Claims.Count > 0 ? new Rows(jwt.Claims.Select(kvp => new Text($"{kvp.Key}={kvp.Value}"))) : new Text(""));
+        table.AddRow(new Markup("[bold grey]Claims:[/]"), jwt.Claims?.Count > 0 ? new Rows(jwt.Claims.Select(kvp => new Text($"{kvp.Key}={kvp.Value}"))) : new Text(""));
         table.AddRow(new Markup("[bold grey]Expires:[/]"), new Text(jwt.Expires.ToString("O")));
         AnsiConsole.Write(table);
         AnsiConsole.MarkupLine("[bold grey]Token:[/]");
@@ -601,7 +601,7 @@ internal static class DevJwtCliHelpers
 
 public record Jwt(string Id, string Name, string Audience, DateTimeOffset NotBefore, DateTimeOffset Expires, DateTimeOffset Issued, string Token)
 {
-    public IDictionary<string, string> Claims { get; } = new Dictionary<string, string>();
+    public IDictionary<string, string>? Claims { get; set; } = new Dictionary<string, string>();
 
     public override string ToString() => Token;
 }
