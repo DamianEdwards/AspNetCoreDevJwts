@@ -1,5 +1,6 @@
 ﻿using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Principal;
@@ -136,32 +137,129 @@ public class ListJwtCommand : Command<ListJwtCommand.Settings>
 
 public class CreateJwtCommand : Command<CreateJwtCommand.Settings>
 {
+    private static readonly string[] _dateTimeFormats = new[] {
+        "yyyy-MM-dd", "yyyy-MM-dd HH:mm", "yyyy-MM-dd HH:mm:ss", "yyyy/MM/dd", "yyyy/MM/dd HH:mm", "yyyy/MM/dd HH:mm:ss" };
+    private static readonly string[] _timeSpanFormats = new[] {
+        @"d\dh\hm\ms\s", @"d\dh\hm\m", @"d\dh\h", @"d\d",
+        @"h\hm\ms\s", @"h\hm\m", @"h\h",
+        @"m\ms\s", @"m\m",
+        @"s\s"
+    };
+
     public class Settings : JwtSettings
     {
-        public Settings(string? project, string? name, string? audience)
+        public Settings(string? project, string? name, string? audience, string? issuer, string? notBeforeOption, string? expiresOnOption, string? validFor)
             : base(project)
         {
             Name = name ?? User;
             Audience = audience ?? DevJwtCliHelpers.GetApplicationUrl(Project!);
+            Issuer = issuer ?? DevJwtsDefaults.Issuer;
+            
+            if (notBeforeOption is { })
+            {
+                if (DateTime.TryParseExact(notBeforeOption, _dateTimeFormats, CultureInfo.CurrentUICulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var notBefore))
+                {
+                    NotBefore = notBefore;
+                }
+            }
+            else
+            {
+                NotBefore = DateTime.UtcNow;
+            }
+            if (!NotBefore.HasValue)
+            {
+                // Invalid input
+                return;
+            }
+
+            ExpiresOnOption = expiresOnOption;
+            ValidFor = validFor;
+            if (ExpiresOnOption is not null && ValidFor is not null)
+            {
+                // Invalid input
+                return;
+            }
+            else if (expiresOnOption is null && validFor is null)
+            {
+                // Default
+                ExpiresOn = NotBefore.Value.AddMonths(6);
+                return;
+            }
+
+            if (expiresOnOption is { })
+            {
+                if (DateTime.TryParseExact(expiresOnOption, _dateTimeFormats, CultureInfo.CurrentUICulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var expiresOn))
+                {
+                    ExpiresOn = expiresOn;
+                }
+            }
+
+            if (validFor is { })
+            {
+                if (TimeSpan.TryParseExact(validFor, _timeSpanFormats, CultureInfo.CurrentUICulture, out var validForValue))
+                {
+                    ExpiresOn = NotBefore.Value.Add(validForValue);
+                }
+            }
+
+            if (!ExpiresOn.HasValue)
+            {
+                // Invalid input
+                return;
+            }
         }
 
         [CommandOption("-n|--name <NAME>")]
-        [Description("The name of the user to create the dev JWT for. Defaults to the current environment user.")]
-        public string Name { get; init; }
+        [Description("The name of the user to create the JWT for. Defaults to the current environment user.")]
+        public string Name { get; }
 
-        [CommandOption("-a|--audience <AUDIENCE>")]
-        [Description("The audience to create the dev JWT for")]
-        public string? Audience { get; init; }
+        [CommandOption("--audience <AUDIENCE>")]
+        [Description("The audience to create the JWT for. Defaults to the first HTTPS URL configured in the project's launchSettings.json.")]
+        public string Audience { get; }
+
+        [CommandOption("--issuer <ISSUER>", IsHidden = true)]
+        [Description("The issuer of the JWT. Defaults to the AspNetCoreDevJwts.")]
+        public string Issuer { get; }
 
         [CommandOption("-c|--claim <CLAIM>")]
         [Description("Claims to add to the JWT. Specify once for each claim in the format \"name=value\".")]
         public string[]? Claims { get; init; }
 
+        [CommandOption("--not-before <DATETIME>")]
+        [Description(@"The UTC date & time the JWT should not be valid before in the format 'yyyy-MM-dd [[HH:mm[[:ss]]]]'. Defaults to the date & time the JWT is created.")]
+        public string? NotBeforeOption { get; }
+
+        public DateTime? NotBefore { get; }
+
+        [CommandOption("--expires-on <DATETIME>")]
+        [Description(@"The UTC date & time the JWT should expire in the format 'yyyy-MM-dd [[[[HH:mm]]:ss]]'. Defaults to 6 months after the --not-before date. " +
+                     "Do not use this option in conjunction with the --valid-for option.")]
+        public string? ExpiresOnOption { get; }
+
+        [CommandOption("-v|--valid-for <TIMESPAN>")]
+        [Description("The period the JWT should expire after. Specify using a number followed by a period type like 'd' for days, 'h' for hours, " +
+                     "'m' for minutes, and 's' for seconds, e.g. '365d'. Do not use this option in conjunction with the --expires-on option.")]
+        public string? ValidFor { get; }
+
+        public DateTime? ExpiresOn { get; init; }
+
         public override ValidationResult Validate()
         {
             if (Name is null or { Length: < 1 })
             {
-                return ValidationResult.Error("Current user name could not be determined, please specify a name for the JWT using the name option");
+                return ValidationResult.Error("Current user name could not be determined, please specify a name for the JWT using the name option.");
+            }
+
+            if (!NotBefore.HasValue)
+            {
+                return ValidationResult.Error(@"The date provided for --not-before could not be parsed. Ensure you use the format 'yyyy-MM-dd [[[[HH:mm]]:ss]]'.");
+            }
+
+            if (!ExpiresOn.HasValue)
+            {
+                return ExpiresOnOption is not null
+                    ? ValidationResult.Error(@"The date provided for --expires-on could not be parsed. Ensure you use the format 'yyyy-MM-dd [[[[HH:mm]]:ss]]'.")
+                    : ValidationResult.Error(@"The period provided for --valid-for could not be parsed. Ensure you use a format like '10d', '24h', etc.");
             }
 
             return base.Validate();
@@ -183,7 +281,7 @@ public class CreateJwtCommand : Command<CreateJwtCommand.Settings>
         var keyMaterial = DevJwtCliHelpers.GetOrCreateSigningKeyMaterial(userSecretsId);
 
         var jwtIssuer = new JwtIssuer(DevJwtsDefaults.Issuer, keyMaterial);
-        var jwt = jwtIssuer.Create(settings.Name, settings.Audience!, Claims);
+        var jwt = jwtIssuer.Create(settings.Name, settings.Audience, notBefore: settings.NotBefore!.Value, expires: settings.ExpiresOn!.Value, issued: DateTime.UtcNow, Claims);
         var jwtStore = new JwtStore(userSecretsId);
         jwtStore.Jwts.Add(jwt.Id, jwt);
         jwtStore.Save();
@@ -629,7 +727,6 @@ public record Jwt(string Id, string Name, string Audience, DateTimeOffset NotBef
 
 public class JwtIssuer
 {
-    private static readonly int _jwtExpireInDays = 28;
     private readonly SymmetricSecurityKey _signingKey;
 
     public JwtIssuer(string issuer, byte[] signingKeyMaterial)
@@ -640,17 +737,13 @@ public class JwtIssuer
 
     public string Issuer { get; }
 
-    public Jwt Create(string name, string audience, IDictionary<string, string>? claims = null)
+    public Jwt Create(string name, string audience, DateTime notBefore, DateTime expires, DateTime issued, IDictionary<string, string>? claims = null)
     {
         var identity = new GenericIdentity(name);
         if (claims is { Count: > 0 } claimsToAdd)
         {
             identity.AddClaims(claimsToAdd.Select(kvp => new Claim(kvp.Key, kvp.Value)));
         }
-
-        var issued = DateTime.UtcNow;
-        var notBefore = issued;
-        var expires = issued.AddDays(_jwtExpireInDays);
         
         var handler = new JwtSecurityTokenHandler();
         var jwtSigningCredentials = new SigningCredentials(_signingKey, SecurityAlgorithms.HmacSha256Signature);
