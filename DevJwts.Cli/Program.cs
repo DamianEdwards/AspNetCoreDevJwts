@@ -641,7 +641,7 @@ public class JwtIssuer
         {
             foreach (var claim in claims)
             {
-                jwt.Claims.Add(claim);
+                jwt.Claims?.Add(claim);
             }
         }
         return jwt;
