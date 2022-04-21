@@ -255,6 +255,11 @@ public class CreateJwtCommand : Command<CreateJwtCommand.Settings>
                 return ValidationResult.Error(@"The date provided for --not-before could not be parsed. Ensure you use the format 'yyyy-MM-dd [[[[HH:mm]]:ss]]'.");
             }
 
+            if (ValidFor is not null && ExpiresOnOption is not null)
+            {
+                return ValidationResult.Error("Do not specify both --expires-on and --valid-for options. Specify either option, or none to get the default expiration.");
+            }
+
             if (!ExpiresOn.HasValue)
             {
                 return ExpiresOnOption is not null
