@@ -7,9 +7,9 @@ using System.Security.Principal;
 using System.Text.Json;
 using System.Xml.Linq;
 using System.Xml.XPath;
-using DevJwts;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
+using DevJwts;
 using Spectre.Console;
 using Spectre.Console.Cli;
 
@@ -26,30 +26,30 @@ app.Configure(config =>
     config.AddExample(new[] { "clear" });
 
     config.AddCommand<ListJwtCommand>("list")
-        .WithDescription("Lists all dev JWTs for the specified project")
+        .WithDescription("Lists all JWTs for the specified project")
         .WithExample(new[] { "list" });
     
     config.AddCommand<CreateJwtCommand>("create")
-        .WithDescription("Creates a dev JWT for the specified project")
+        .WithDescription("Creates a JWT for the specified project")
         .WithExample(new[] { "create" })
         .WithExample(new[] { "create", "-n testuser" })
         .WithExample(new[] { "create", "-n testuser", "--claim scope=myapi:read" });
     
     config.AddCommand<PrintJwtCommand>("print")
-        .WithDescription("Prints the details of the specified dev JWT")
+        .WithDescription("Prints the details of the specified JWT")
         .WithExample(new[] { "print", "caa676ee" });
     
     config.AddCommand<DeleteJwtCommand>("delete")
-        .WithDescription("Deletes the dev JWT with the specified ID in the specified project")
+        .WithDescription("Deletes the JWT with the specified ID in the specified project")
         .WithExample(new[] { "delete", "caa676ee" });
     
     config.AddCommand<ClearJwtCommand>("clear")
-        .WithDescription("Deletes all dev JWTs for the specified project")
+        .WithDescription("Deletes all JWTs for the specified project")
         .WithExample(new[] { "clear" })
         .WithExample(new[] { "clear", "--force" }); ;
     
     config.AddCommand<KeyCommand>("key")
-        .WithDescription("Prints the key used for signing dev JWTs for the specified project");
+        .WithDescription("Prints the key used for signing JWTs for the specified project");
 });
 
 return app.Run(args);
@@ -333,6 +333,10 @@ public class PrintJwtCommand : Command<PrintJwtCommand.Settings>
         [Description("The ID of the JWT to print")]
         public string Id { get; }
 
+        [CommandOption("-f|--full")]
+        [Description("Whether to show the full JWT contents in addition to the compact serialized format")]
+        public bool? Full { get; init; }
+
         public override ValidationResult Validate()
         {
             return Id is null or { Length: < 1 }
@@ -364,7 +368,15 @@ public class PrintJwtCommand : Command<PrintJwtCommand.Settings>
         }
 
         AnsiConsole.MarkupLineInterpolated($"[green]Found JWT with ID[/] [yellow]{settings.Id}[/]");
-        DevJwtCliHelpers.PrintJwt(jwtStore.Jwts[settings.Id]);
+        var jwt = jwtStore.Jwts[settings.Id];
+        JwtSecurityToken? fullToken = null;
+        if (settings.Full == true)
+        {
+            var keyMaterial = DevJwtCliHelpers.GetOrCreateSigningKeyMaterial(userSecretsId);
+            var jwtIssuer = new JwtIssuer(DevJwtsDefaults.Issuer, keyMaterial);
+            fullToken = jwtIssuer.Extract(jwt.Token);
+        }
+        DevJwtCliHelpers.PrintJwt(jwt, fullToken);
 
         return 0;
     }
@@ -538,7 +550,7 @@ public class KeyCommand : Command<KeyCommand.Settings>
 
         if (signingKeyMaterial is null)
         {
-            AnsiConsole.MarkupLine("Signing key for dev JWTs was not found. One will be created automatically when the first JWT is created.");
+            AnsiConsole.MarkupLine("Signing key for JWTs was not found. One will be created automatically when the first JWT is created, or you can force creation of a key with the --reset option.");
             return 0;
         }
 
@@ -664,7 +676,7 @@ internal static class DevJwtCliHelpers
         AnsiConsole.WriteLine();
     }
 
-    public static void PrintJwt(Jwt jwt)
+    public static void PrintJwt(Jwt jwt, JwtSecurityToken? fullToken = null)
     {
         var table = new Table();
         table.Border(TableBorder.None);
@@ -676,8 +688,13 @@ internal static class DevJwtCliHelpers
         table.AddRow(new Markup("[bold grey]Claims:[/]"), jwt.Claims?.Count > 0 ? new Rows(jwt.Claims.Select(kvp => new Text($"{kvp.Key}={kvp.Value}"))) : new Text("[none]"));
         table.AddRow(new Markup("[bold grey]Expires:[/]"), new Text(jwt.Expires.ToString("O")));
         table.AddRow(new Markup("[bold grey]Issued:[/]"), new Text(jwt.Issued.ToString("O")));
+        if (fullToken is not null)
+        {
+            table.AddRow(new Markup("[bold grey]Token Header:[/]"), new Text(JsonSerializer.Serialize(fullToken.Header)));
+            table.AddRow(new Markup("[bold grey]Token Payload:[/]"), new Text(JsonSerializer.Serialize(fullToken.Payload)));
+        }
         AnsiConsole.Write(table);
-        AnsiConsole.MarkupLine("[bold grey]Token:[/]");
+        AnsiConsole.MarkupLine("[bold grey]Compact Token:[/]");
         Console.WriteLine(jwt.Token);
     }
 
@@ -735,8 +752,10 @@ internal static class DevJwtCliHelpers
             {
                 return false;
             }
+
             var key = parts[0];
             var value = parts[1];
+
             // Collapse multiple scopes into single space-delimited field
             if (string.Equals("scope", key, StringComparison.Ordinal) && claims.ContainsKey("scope"))
             {
@@ -794,6 +813,20 @@ public class JwtIssuer
             }
         }
         return jwt;
+    }
+
+    public JwtSecurityToken Extract(string token)
+    {
+        var handler = new JwtSecurityTokenHandler();
+        var tokenValidationParameters = new TokenValidationParameters
+        {
+            IssuerSigningKey = _signingKey,
+            ValidateAudience = false,
+            ValidateIssuer = false,
+            ValidateLifetime = false
+        };
+        var _ = handler.ValidateToken(token, tokenValidationParameters, out var securityToken);
+        return (JwtSecurityToken)securityToken;
     }
 }
 
