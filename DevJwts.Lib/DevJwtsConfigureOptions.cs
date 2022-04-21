@@ -53,8 +53,8 @@ public class DevJwtsConfigureOptions : IConfigureOptions<JwtBearerOptions>, ICon
                 """);
         }
         var jwtKeyMaterial = !string.IsNullOrEmpty(jwtKeyMaterialSecret)
-            ? Convert.FromHexString(jwtKeyMaterialSecret)
-            : System.Security.Cryptography.RandomNumberGenerator.GetBytes(16);
+            ? Convert.FromBase64String(jwtKeyMaterialSecret)
+            : System.Security.Cryptography.RandomNumberGenerator.GetBytes(DevJwtsDefaults.SigningKeyLength);
         return new SymmetricSecurityKey(jwtKeyMaterial);
     }
 }

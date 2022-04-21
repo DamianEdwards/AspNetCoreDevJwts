@@ -22,13 +22,17 @@ app.Configure(config =>
     config.AddCommand<CreateJwtCommand>("create")
         .WithDescription("Creates a dev JWT for the specified project")
         .WithExample(new[] { "create" })
-        .WithExample(new[] { "create", "-n testuser" });
+        .WithExample(new[] { "create", "-n testuser" })
+        .WithExample(new[] { "create", "-n testuser", "--claim scope=myapi:read" });
     config.AddCommand<PrintJwtCommand>("print")
-        .WithDescription("Prints the details of the specified dev JWT");
+        .WithDescription("Prints the details of the specified dev JWT")
+        .WithExample(new[] { "print", "caa676ee" });
     config.AddCommand<DeleteJwtCommand>("delete")
-        .WithDescription("Deletes the dev JWT with the specified ID in the specified project");
+        .WithDescription("Deletes the dev JWT with the specified ID in the specified project")
+        .WithExample(new[] { "delete", "caa676ee" });
     config.AddCommand<ClearJwtCommand>("clear")
-        .WithDescription("Deletes all dev JWTs for the specified project");
+        .WithDescription("Deletes all dev JWTs for the specified project")
+        .WithExample(new[] { "clear" });
     config.AddCommand<KeyCommand>("key")
         .WithDescription("Prints the key used for signing dev JWTs for the specified project");
 });
@@ -105,13 +109,17 @@ public class CreateJwtSettings : JwtSettings
     public string? Audience { get; init; }
 
     [CommandOption("-c|--claim <CLAIM>")]
+    [Description("Claims to add to the JWT. Specify once for each claim in the format \"name=value\".")]
     public string[]? Claims { get; init; }
 
     public override ValidationResult Validate()
     {
-        return Name is null or { Length: <1 }
-            ? ValidationResult.Error("Current user name could not be determined, please specify a name for the JWT using the name option")
-            : base.Validate();
+        if (Name is null or { Length: < 1 })
+        {
+            return ValidationResult.Error("Current user name could not be determined, please specify a name for the JWT using the name option");
+        }
+
+        return base.Validate();
     }
 }
 
@@ -162,6 +170,8 @@ public class ClearJwtSettings : JwtSettings
     {
 
     }
+
+    // TODO: Add setting to ignore prompt, e.g. -f|--force
 }
 
 public class KeySettings : JwtSettings
@@ -243,6 +253,8 @@ public class ListJwtCommand : Command<ListJwtSettings>
 
 public class CreateJwtCommand : Command<CreateJwtSettings>
 {
+    public IDictionary<string, string>? Claims { get; set; }
+
     public override int Execute([NotNull] CommandContext context, [NotNull] CreateJwtSettings settings)
     {
         var userSecretsId = DevJwtCliHelpers.GetUserSecretsId(settings.Project!);
@@ -256,8 +268,7 @@ public class CreateJwtCommand : Command<CreateJwtSettings>
         var keyMaterial = DevJwtCliHelpers.GetOrCreateSigningKeyMaterial(userSecretsId);
 
         var jwtIssuer = new JwtIssuer(DevJwtsDefaults.Issuer, keyMaterial);
-        // TODO: Build claims dictionary from command options
-        var jwt = jwtIssuer.Create(settings.Name, settings.Audience!);
+        var jwt = jwtIssuer.Create(settings.Name, settings.Audience!, Claims);
         var jwtStore = new JwtStore(userSecretsId);
         jwtStore.Jwts.Add(jwt.Id, jwt);
         jwtStore.Save();
@@ -270,6 +281,22 @@ public class CreateJwtCommand : Command<CreateJwtSettings>
 
     public override ValidationResult Validate([NotNull] CommandContext context, [NotNull] CreateJwtSettings settings)
     {
+        var settingsResult = settings.Validate();
+        if (!settingsResult.Successful)
+        {
+            return settingsResult;
+        }
+
+        if (settings.Claims is { Length: >0 } claimsInput)
+        {
+            var parsedClaims = DevJwtCliHelpers.TryParseClaims(claimsInput, out IDictionary<string, string> claims);
+            if (!parsedClaims)
+            {
+                return ValidationResult.Error("Malformed claims supplied. Ensure each claim is in the format \"name=value\".");
+            }
+            Claims = claims;
+        }
+
         return base.Validate(context, settings);
     }
 }
@@ -489,13 +516,12 @@ internal static class DevJwtCliHelpers
         var table = new Table();
         table.Border(TableBorder.None);
         table.HideHeaders();
-        table.AddColumn(new TableColumn("Key"));
-        table.AddColumn(new TableColumn("Value"));
+        table.AddColumns("Name", "Value");
         table.AddRow(new Markup("[bold grey]Id:[/]"), new Text(jwt.Id));
         table.AddRow(new Markup("[bold grey]Name:[/]"), new Text(jwt.Name));
         table.AddRow(new Markup("[bold grey]Audience:[/]"), new Text(jwt.Audience));
+        table.AddRow(new Markup("[bold grey]Claims:[/]"), jwt.Claims.Count > 0 ? new Rows(jwt.Claims.Select(kvp => new Text($"{kvp.Key}={kvp.Value}"))) : new Text(""));
         table.AddRow(new Markup("[bold grey]Expires:[/]"), new Text(jwt.Expires.ToString("O")));
-        // TODO: Print claims
         AnsiConsole.Write(table);
         AnsiConsole.MarkupLine("[bold grey]Token:[/]");
         Console.WriteLine(jwt.Token);
@@ -544,6 +570,33 @@ internal static class DevJwtCliHelpers
         // Kestrel default
         return "https://localhost:5001";
     }
+
+    public static bool TryParseClaims(string[] input, out IDictionary<string, string> claims)
+    {
+        claims = new Dictionary<string, string>();
+        foreach (var claim in input)
+        {
+            var parts = claim.Split('=');
+            if (parts.Length != 2)
+            {
+                return false;
+            }
+            var key = parts[0];
+            var value = parts[1];
+            // Collapse multiple scopes into single space-delimited field
+            if (string.Equals("scope", key, StringComparison.Ordinal) && claims.ContainsKey("scope"))
+            {
+                var existingScope = claims["scope"];
+                claims["scope"] = $"{existingScope} {value}";
+            }
+            else
+            {
+                // TODO: Handle other duplicate claims
+                claims.Add(key, value);
+            }
+        }
+        return true;
+    }
 }
 
 public record Jwt(string Id, string Name, string Audience, DateTimeOffset NotBefore, DateTimeOffset Expires, DateTimeOffset Issued, string Token)
@@ -584,6 +637,13 @@ public class JwtIssuer
 
         var id = Guid.NewGuid().ToString().GetHashCode().ToString("x");
         var jwt = new Jwt(id, name, audience, notBefore, expires, issued, token);
+        if (claims is not null)
+        {
+            foreach (var claim in claims)
+            {
+                jwt.Claims.Add(claim);
+            }
+        }
         return jwt;
     }
 }
