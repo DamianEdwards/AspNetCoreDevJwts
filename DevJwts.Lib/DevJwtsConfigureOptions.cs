@@ -8,11 +8,13 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace DevJwts.Lib;
 
-public class DevJwtsConfigureOptions : IConfigureOptions<JwtBearerOptions>, IConfigureNamedOptions<JwtBearerOptions>
+public class DevJwtsConfigureOptions : IConfigureNamedOptions<JwtBearerOptions>
 {
+    private static readonly string[] _devJwtIssuers = new[] { DevJwtsDefaults.Issuer };
     private readonly IConfiguration _configuration;
     private readonly IServer _server;
     private readonly ILogger<DevJwtsConfigureOptions> _logger;
+    private readonly SecurityKey[] _signingKeys;
 
     public DevJwtsConfigureOptions(IConfiguration configuration, IServer server, ILogger<DevJwtsConfigureOptions> logger)
     {
@@ -21,10 +23,8 @@ public class DevJwtsConfigureOptions : IConfigureOptions<JwtBearerOptions>, ICon
         _logger = logger;
 
         // TODO: React to key changing while app is running?
-        SigningKey = GetSigningKey(_configuration, _logger);
+        _signingKeys = new[] { GetSigningKey(_configuration, _logger) };
     }
-
-    public SecurityKey? SigningKey { get; }
 
     public void Configure(JwtBearerOptions options)
     {
@@ -32,9 +32,8 @@ public class DevJwtsConfigureOptions : IConfigureOptions<JwtBearerOptions>, ICon
         var firstHttps = addresses?.Addresses.First(a => a.StartsWith("https"));
         options.Audience = firstHttps ?? throw new InvalidOperationException("Audience: What to do when there's no HTTPS address?");
         options.ClaimsIssuer = DevJwtsDefaults.Issuer;
-        options.TokenValidationParameters.ValidIssuer = DevJwtsDefaults.Issuer;
-        options.TokenValidationParameters.IssuerSigningKey = SigningKey;
-        // TODO: Should we bother validating issuer and audience for dev JWTs?
+        options.TokenValidationParameters.ValidIssuers = options.TokenValidationParameters.ValidIssuers?.Concat(_devJwtIssuers) ?? _devJwtIssuers;
+        options.TokenValidationParameters.IssuerSigningKeys = options.TokenValidationParameters.IssuerSigningKeys?.Concat(_signingKeys) ?? _signingKeys;
         options.TokenValidationParameters.ValidateIssuer = true;
         options.TokenValidationParameters.ValidateAudience = true;
     }
