@@ -3,8 +3,11 @@
 ## What is this?
 I logged [this issue in ASP.NET Core](https://github.com/dotnet/aspnetcore/issues/39857) for .NET 7 to explore ways we can make working with JWT authentication during development easier. Going from "I have no protected APIs" to "I added my first protected API" involves a lot of new concepts and actions today in ASP.NET Core. The primary focus of this exploration is to make that journey much easier to achieve.
 
-## Install pre-requisites
+## Video
+### First Look at ASP NET Core dev JWTs
+[![First Look at ASP NET Core dev JWTs](http://img.youtube.com/vi/xyp3urUm69I/0.jpg)](https://www.youtube.com/watch?v=xyp3urUm69I&feature=youtu.be&hd=1 "First Look at ASP NET Core dev JWTs")
 
+## Install pre-requisites
 1. Install the latest [.NET 7 Preview SDK](https://dotnet.microsoft.com/en-us/download/dotnet/7.0)
 
     On Windows you can optionally use [winget](https://docs.microsoft.com/en-us/windows/package-manager/winget/):
