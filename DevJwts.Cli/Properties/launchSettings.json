@@ -2,7 +2,7 @@
   "profiles": {
     "DevJwts.Cli": {
       "commandName": "Project",
-      "commandLineArgs": "jwt clear",
+      "commandLineArgs": "print c2130145 --full",
       "workingDirectory": "$(ProjectDir)../SampleWebApi"
     }
   }

@@ -1,6 +1,5 @@
 ﻿using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
-using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Principal;
@@ -12,18 +11,14 @@ using Microsoft.IdentityModel.Tokens;
 using DevJwts;
 using Spectre.Console;
 using Spectre.Console.Cli;
+using System.Globalization;
 
 var app = new CommandApp();
 
 app.Configure(config =>
 {
     config.SetApplicationName("dev-jwts");
-
-    config.AddExample(new[] { "create" });
-    config.AddExample(new[] { "create", "-n testuser", "--claim scope=myapi:read" });
-    config.AddExample(new[] { "list" });
-    config.AddExample(new[] { "delete", "caa676ee" });
-    config.AddExample(new[] { "clear" });
+    //config.PropagateExceptions();
 
     config.AddCommand<ListJwtCommand>("list")
         .WithDescription("Lists all JWTs for the specified project")
@@ -32,8 +27,8 @@ app.Configure(config =>
     config.AddCommand<CreateJwtCommand>("create")
         .WithDescription("Creates a JWT for the specified project")
         .WithExample(new[] { "create" })
-        .WithExample(new[] { "create", "-n testuser" })
-        .WithExample(new[] { "create", "-n testuser", "--claim scope=myapi:read" });
+        .WithExample(new[] { "create", "--name testuser" })
+        .WithExample(new[] { "create", "--name testuser", "--claim scope=myapi:read" });
     
     config.AddCommand<PrintJwtCommand>("print")
         .WithDescription("Prints the details of the specified JWT")
@@ -50,11 +45,17 @@ app.Configure(config =>
     
     config.AddCommand<KeyCommand>("key")
         .WithDescription("Prints the key used for signing JWTs for the specified project");
+
+    config.AddExample(new[] { "create" });
+    config.AddExample(new[] { "create", "-n testuser", "--claim scope=myapi:read" });
+    config.AddExample(new[] { "list" });
+    config.AddExample(new[] { "delete", "caa676ee" });
+    config.AddExample(new[] { "clear" });
 });
 
 return app.Run(args);
 
-public class ListJwtCommand : Command<ListJwtCommand.Settings>
+public class ListJwtCommand : JwtCommand<ListJwtCommand.Settings>
 {
     public class Settings : JwtSettings
     {
@@ -66,30 +67,17 @@ public class ListJwtCommand : Command<ListJwtCommand.Settings>
 
         [CommandOption("--show-tokens")]
         [Description("Indicates whether JWT base64 strings should be shown")]
-        public bool? ShowTokens { get; set; }
+        public bool ShowTokens { get; set; }
     }
 
     public override int Execute([NotNull] CommandContext context, [NotNull] Settings settings)
     {
-        var userSecretsId = DevJwtCliHelpers.GetUserSecretsId(settings.Project!);
+        ArgumentNullException.ThrowIfNull(settings.Project);
+        ArgumentNullException.ThrowIfNull(UserSecretsId);
 
-        if (userSecretsId is null)
-        {
-            AnsiConsole.WriteLine("Error: The specified project does not have a user secrets ID configured. Set a user secrets ID by running the command 'dotnet user-secrets init'.");
-            return 1;
-        }
+        var jwtStore = new JwtStore(UserSecretsId);
 
-        var jwtStore = new JwtStore(userSecretsId);
-
-        var settingsTable = new Table();
-        settingsTable.ShowHeaders = false;
-        settingsTable.Border(TableBorder.None);
-        settingsTable.AddColumn("Name");
-        settingsTable.AddColumn("Value");
-        settingsTable.AddRow(new Markup("[grey]Project:[/]"), new TextPath(settings.Project!));
-        settingsTable.AddRow(new Markup("[grey]User Secrets ID:[/]"), new Text(userSecretsId));
-        AnsiConsole.Write(settingsTable);
-        AnsiConsole.WriteLine();
+        DevJwtCliHelpers.PrintProjectDetails(settings.Project, UserSecretsId);
 
         if (jwtStore.Jwts is { Count: >0 } jwts)
         {
@@ -100,7 +88,7 @@ public class ListJwtCommand : Command<ListJwtCommand.Settings>
             table.AddColumn("Issued");
             table.AddColumn("Expires");
 
-            if (settings.ShowTokens == true)
+            if (settings.ShowTokens)
             {
                 table.AddColumn("Encoded Token");
             }
@@ -128,14 +116,9 @@ public class ListJwtCommand : Command<ListJwtCommand.Settings>
 
         return 0;
     }
-
-    public override ValidationResult Validate([NotNull] CommandContext context, [NotNull] Settings settings)
-    {
-        return base.Validate(context, settings);
-    }
 }
 
-public class CreateJwtCommand : Command<CreateJwtCommand.Settings>
+public class CreateJwtCommand : JwtCommand<CreateJwtCommand.Settings>
 {
     private static readonly string[] _dateTimeFormats = new[] {
         "yyyy-MM-dd", "yyyy-MM-dd HH:mm", "yyyy-MM-dd HH:mm:ss", "yyyy/MM/dd", "yyyy/MM/dd HH:mm", "yyyy/MM/dd HH:mm:ss" };
@@ -148,78 +131,27 @@ public class CreateJwtCommand : Command<CreateJwtCommand.Settings>
 
     public class Settings : JwtSettings
     {
-        public Settings(string? project, string? name, string? audience, string? issuer, string? notBeforeOption, string? expiresOnOption, string? validFor)
-            : base(project)
-        {
-            Name = name ?? User;
-            Audience = audience ?? DevJwtCliHelpers.GetApplicationUrl(Project!);
-            Issuer = issuer ?? DevJwtsDefaults.Issuer;
-            
-            if (notBeforeOption is { })
-            {
-                if (DateTime.TryParseExact(notBeforeOption, _dateTimeFormats, CultureInfo.CurrentUICulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var notBefore))
-                {
-                    NotBefore = notBefore;
-                }
-            }
-            else
-            {
-                NotBefore = DateTime.UtcNow;
-            }
-            if (!NotBefore.HasValue)
-            {
-                // Invalid input
-                return;
-            }
+        public Settings(string? project) : base(project) { }
 
-            ExpiresOnOption = expiresOnOption;
-            ValidFor = validFor;
-            if (ExpiresOnOption is not null && ValidFor is not null)
-            {
-                // Invalid input
-                return;
-            }
-            else if (expiresOnOption is null && validFor is null)
-            {
-                // Default
-                ExpiresOn = NotBefore.Value.AddMonths(6);
-                return;
-            }
-
-            if (expiresOnOption is { })
-            {
-                if (DateTime.TryParseExact(expiresOnOption, _dateTimeFormats, CultureInfo.CurrentUICulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var expiresOn))
-                {
-                    ExpiresOn = expiresOn;
-                }
-            }
-
-            if (validFor is { })
-            {
-                if (TimeSpan.TryParseExact(validFor, _timeSpanFormats, CultureInfo.CurrentUICulture, out var validForValue))
-                {
-                    ExpiresOn = NotBefore.Value.Add(validForValue);
-                }
-            }
-
-            if (!ExpiresOn.HasValue)
-            {
-                // Invalid input
-                return;
-            }
-        }
-
-        [CommandOption("-n|--name <NAME>")]
+        [CommandOption("-n|--name|-u|--user <NAME>")]
         [Description("The name of the user to create the JWT for. Defaults to the current environment user.")]
-        public string Name { get; }
+        public string? Name { get; init; }
 
         [CommandOption("--audience <AUDIENCE>")]
         [Description("The audience to create the JWT for. Defaults to the first HTTPS URL configured in the project's launchSettings.json.")]
-        public string Audience { get; }
+        public string? Audience { get; init; }
 
         [CommandOption("--issuer <ISSUER>", IsHidden = true)]
         [Description("The issuer of the JWT. Defaults to the AspNetCoreDevJwts.")]
-        public string Issuer { get; }
+        public string? Issuer { get; init; }
+
+        [CommandOption("-s|--scope <SCOPE>")]
+        [Description("A scope claim to add to the JWT. Specify once for each scope.")]
+        public string[]? Scopes { get; init; }
+
+        [CommandOption("-r|--role <ROLE>")]
+        [Description("A role claim to add to the JWT. Specify once for each role.")]
+        public string[]? Roles { get; init; }
 
         [CommandOption("-c|--claim <CLAIM>")]
         [Description("Claims to add to the JWT. Specify once for each claim in the format \"name=value\".")]
@@ -227,99 +159,136 @@ public class CreateJwtCommand : Command<CreateJwtCommand.Settings>
 
         [CommandOption("--not-before <DATETIME>")]
         [Description(@"The UTC date & time the JWT should not be valid before in the format 'yyyy-MM-dd [[HH:mm[[:ss]]]]'. Defaults to the date & time the JWT is created.")]
-        public string? NotBeforeOption { get; }
-
-        public DateTime? NotBefore { get; }
+        public string? NotBefore { get; init; }
 
         [CommandOption("--expires-on <DATETIME>")]
         [Description(@"The UTC date & time the JWT should expire in the format 'yyyy-MM-dd [[[[HH:mm]]:ss]]'. Defaults to 6 months after the --not-before date. " +
                      "Do not use this option in conjunction with the --valid-for option.")]
-        public string? ExpiresOnOption { get; }
+        public string? ExpiresOn { get; init; }
 
         [CommandOption("-v|--valid-for <TIMESPAN>")]
         [Description("The period the JWT should expire after. Specify using a number followed by a period type like 'd' for days, 'h' for hours, " +
                      "'m' for minutes, and 's' for seconds, e.g. '365d'. Do not use this option in conjunction with the --expires-on option.")]
-        public string? ValidFor { get; }
-
-        public DateTime? ExpiresOn { get; init; }
+        public string? ValidFor { get; init; }
 
         public override ValidationResult Validate()
         {
-            if (Name is null or { Length: < 1 })
+            var baseResult = base.Validate();
+
+            if (!baseResult.Successful)
             {
-                return ValidationResult.Error("Current user name could not be determined, please specify a name for the JWT using the name option.");
+                return baseResult;
             }
 
-            if (!NotBefore.HasValue)
-            {
-                return ValidationResult.Error(@"The date provided for --not-before could not be parsed. Ensure you use the format 'yyyy-MM-dd [[[[HH:mm]]:ss]]'.");
-            }
-
-            if (ValidFor is not null && ExpiresOnOption is not null)
+            if (ValidFor is not null && ExpiresOn is not null)
             {
                 return ValidationResult.Error("Do not specify both --expires-on and --valid-for options. Specify either option, or none to get the default expiration.");
             }
 
-            if (!ExpiresOn.HasValue)
-            {
-                return ExpiresOnOption is not null
-                    ? ValidationResult.Error(@"The date provided for --expires-on could not be parsed. Ensure you use the format 'yyyy-MM-dd [[[[HH:mm]]:ss]]'.")
-                    : ValidationResult.Error(@"The period provided for --valid-for could not be parsed. Ensure you use a format like '10d', '24h', etc.");
-            }
-
-            return base.Validate();
+            return ValidationResult.Success();
         }
     }
 
     public IDictionary<string, string>? Claims { get; set; }
 
+    public string? Name { get; private set; }
+
+    public string? Audience { get; private set; }
+
+    public DateTime NotBefore { get; private set; }
+
+    public DateTime ExpiresOn { get; private set; }
+
     public override int Execute([NotNull] CommandContext context, [NotNull] Settings settings)
     {
-        var userSecretsId = DevJwtCliHelpers.GetUserSecretsId(settings.Project!);
+        ArgumentNullException.ThrowIfNull(UserSecretsId);
+        ArgumentNullException.ThrowIfNull(Name);
+        ArgumentNullException.ThrowIfNull(Audience);
 
-        if (userSecretsId is null)
-        {
-            AnsiConsole.MarkupLine("[red]Error:[/] The specified project does not have a user secrets ID configured. Set a user secrets ID by running the command [yello]'dotnet user-secrets init'[/].");
-            return 1;
-        }
-
-        var keyMaterial = DevJwtCliHelpers.GetOrCreateSigningKeyMaterial(userSecretsId);
+        var keyMaterial = DevJwtCliHelpers.GetOrCreateSigningKeyMaterial(UserSecretsId);
 
         var jwtIssuer = new JwtIssuer(DevJwtsDefaults.Issuer, keyMaterial);
-        var jwt = jwtIssuer.Create(settings.Name, settings.Audience, notBefore: settings.NotBefore!.Value, expires: settings.ExpiresOn!.Value, issued: DateTime.UtcNow, Claims);
-        var jwtStore = new JwtStore(userSecretsId);
-        jwtStore.Jwts.Add(jwt.Id, jwt);
+        var jwtToken = jwtIssuer.Create(Name, Audience, notBefore: NotBefore, expires: ExpiresOn, issuedAt: DateTime.UtcNow, settings.Scopes, settings.Roles, Claims);
+
+        var jwtStore = new JwtStore(UserSecretsId);
+        var jwt = Jwt.Create(jwtToken, jwtIssuer.WriteToken(jwtToken), settings.Scopes, settings.Roles, Claims);
+        if (Claims is { } customClaims)
+        {
+            jwt.CustomClaims = customClaims;
+        }
+        jwtStore.Jwts.Add(jwtToken.Id, jwt);
         jwtStore.Save();
 
         AnsiConsole.MarkupLineInterpolated($"[green]JWT successfully created:[/]");
-        DevJwtCliHelpers.PrintJwt(jwt);
+        DevJwtCliHelpers.PrintJwt(jwt, jwtToken);
 
         return 0;
     }
 
     public override ValidationResult Validate([NotNull] CommandContext context, [NotNull] Settings settings)
     {
-        var settingsResult = settings.Validate();
-        if (!settingsResult.Successful)
+        var baseResult = base.Validate(context, settings);
+        if (!baseResult.Successful)
         {
-            return settingsResult;
+            return baseResult;
+        }
+
+        ArgumentNullException.ThrowIfNull(settings.Project);
+
+        Name = settings.Name ?? Environment.UserName;
+
+        Audience = settings.Audience;
+        if (Audience is null)
+        {
+            if ((Audience = DevJwtCliHelpers.GetApplicationUrl(settings.Project)) is null)
+            {
+                return ValidationResult.Error("Could not determine the project's HTTPS URL. Please specify an audience for the JWT using the --audience option.");
+            }
+        }
+
+        NotBefore = DateTime.UtcNow;
+        if (settings.NotBefore is { })
+        {
+            if (!DateTime.TryParseExact(settings.NotBefore, _dateTimeFormats, CultureInfo.CurrentUICulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var notBefore))
+            {
+                return ValidationResult.Error(@"The date provided for --not-before could not be parsed. Ensure you use the format 'yyyy-MM-dd [[[[HH:mm]]:ss]]'.");
+            }
+            NotBefore = notBefore;
+        }
+
+        ExpiresOn = NotBefore.AddMonths(6);
+        if (settings.ExpiresOn is { })
+        {
+            if (!DateTime.TryParseExact(settings.ExpiresOn, _dateTimeFormats, CultureInfo.CurrentUICulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var expiresOn))
+            {
+                return ValidationResult.Error(@"The date provided for --expires-on could not be parsed. Ensure you use the format 'yyyy-MM-dd [[[[HH:mm]]:ss]]'.");
+            }
+            ExpiresOn = expiresOn;
+        }
+
+        if (settings.ValidFor is { })
+        {
+            if (!TimeSpan.TryParseExact(settings.ValidFor, _timeSpanFormats, CultureInfo.CurrentUICulture, out var validForValue))
+            {
+                return ValidationResult.Error("The period provided for --valid-for could not be parsed. Ensure you use a format like '10d', '24h', etc.");
+            }
+            ExpiresOn = NotBefore.Add(validForValue);
         }
 
         if (settings.Claims is { Length: >0 } claimsInput)
         {
-            var parsedClaims = DevJwtCliHelpers.TryParseClaims(claimsInput, out IDictionary<string, string> claims);
-            if (!parsedClaims)
+            if (!DevJwtCliHelpers.TryParseClaims(claimsInput, out IDictionary<string, string> claims))
             {
                 return ValidationResult.Error("Malformed claims supplied. Ensure each claim is in the format \"name=value\".");
             }
             Claims = claims;
         }
 
-        return base.Validate(context, settings);
+        return ValidationResult.Success();
     }
 }
 
-public class PrintJwtCommand : Command<PrintJwtCommand.Settings>
+public class PrintJwtCommand : JwtCommand<PrintJwtCommand.Settings>
 {
     public class Settings : JwtSettings
     {
@@ -335,27 +304,30 @@ public class PrintJwtCommand : Command<PrintJwtCommand.Settings>
 
         [CommandOption("-f|--full")]
         [Description("Whether to show the full JWT contents in addition to the compact serialized format")]
-        public bool? Full { get; init; }
+        public bool Full { get; init; }
 
         public override ValidationResult Validate()
         {
-            return Id is null or { Length: < 1 }
-                ? ValidationResult.Error("ID was not specified, please specify the ID of a JWT to print")
-                : base.Validate();
+            var baseResult = base.Validate();
+            if (!baseResult.Successful)
+            {
+                return baseResult;
+            }
+
+            if (string.IsNullOrEmpty(Id))
+            {
+                return ValidationResult.Error("ID was not specified, please specify the ID of a JWT to print");
+            }
+            
+            return ValidationResult.Success();
         }
     }
 
     public override int Execute([NotNull] CommandContext context, [NotNull] Settings settings)
     {
-        var userSecretsId = DevJwtCliHelpers.GetUserSecretsId(settings.Project!);
+        ArgumentNullException.ThrowIfNull(UserSecretsId);
 
-        if (userSecretsId is null)
-        {
-            AnsiConsole.MarkupLine("[red]Error:[/] The specified project does not have a user secrets ID configured. Set a user secrets ID by running the command [yello]'dotnet user-secrets init'[/].");
-            return 1;
-        }
-
-        var jwtStore = new JwtStore(userSecretsId);
+        var jwtStore = new JwtStore(UserSecretsId);
 
         if (!jwtStore.Jwts.ContainsKey(settings.Id))
         {
@@ -372,7 +344,7 @@ public class PrintJwtCommand : Command<PrintJwtCommand.Settings>
         JwtSecurityToken? fullToken = null;
         if (settings.Full == true)
         {
-            var keyMaterial = DevJwtCliHelpers.GetOrCreateSigningKeyMaterial(userSecretsId);
+            var keyMaterial = DevJwtCliHelpers.GetOrCreateSigningKeyMaterial(UserSecretsId);
             var jwtIssuer = new JwtIssuer(DevJwtsDefaults.Issuer, keyMaterial);
             fullToken = jwtIssuer.Extract(jwt.Token);
         }
@@ -380,14 +352,9 @@ public class PrintJwtCommand : Command<PrintJwtCommand.Settings>
 
         return 0;
     }
-
-    public override ValidationResult Validate([NotNull] CommandContext context, [NotNull] Settings settings)
-    {
-        return settings.Validate();
-    }
 }
 
-public class DeleteJwtCommand : Command<DeleteJwtCommand.Settings>
+public class DeleteJwtCommand : JwtCommand<DeleteJwtCommand.Settings>
 {
     public class Settings : JwtSettings
     {
@@ -403,23 +370,26 @@ public class DeleteJwtCommand : Command<DeleteJwtCommand.Settings>
 
         public override ValidationResult Validate()
         {
-            return Id is null or { Length: < 1 }
-                ? ValidationResult.Error("ID was not specified, please specify the ID of a JWT to delete")
-                : base.Validate();
+            var baseResult = base.Validate();
+            if (!baseResult.Successful)
+            {
+                return baseResult;
+            }
+
+            if (string.IsNullOrEmpty(Id))
+            {
+                return ValidationResult.Error("ID was not specified, please specify the ID of a JWT to delete");
+            }
+
+            return ValidationResult.Success();
         }
     }
 
     public override int Execute([NotNull] CommandContext context, [NotNull] Settings settings)
     {
-        var userSecretsId = DevJwtCliHelpers.GetUserSecretsId(settings.Project!);
+        ArgumentNullException.ThrowIfNull(UserSecretsId);
 
-        if (userSecretsId is null)
-        {
-            AnsiConsole.MarkupLine("[red]Error:[/] The specified project does not have a user secrets ID configured. Set a user secrets ID by running the command [yello]'dotnet user-secrets init'[/].");
-            return 1;
-        }
-
-        var jwtStore = new JwtStore(userSecretsId);
+        var jwtStore = new JwtStore(UserSecretsId);
 
         if (!jwtStore.Jwts.ContainsKey(settings.Id))
         {
@@ -438,14 +408,9 @@ public class DeleteJwtCommand : Command<DeleteJwtCommand.Settings>
 
         return 0;
     }
-
-    public override ValidationResult Validate([NotNull] CommandContext context, [NotNull] Settings settings)
-    {
-        return settings.Validate();
-    }
 }
 
-public class ClearJwtCommand : Command<ClearJwtCommand.Settings>
+public class ClearJwtCommand : JwtCommand<ClearJwtCommand.Settings>
 {
     public class Settings : JwtSettings
     {
@@ -457,20 +422,14 @@ public class ClearJwtCommand : Command<ClearJwtCommand.Settings>
 
         [CommandOption("-f|--force")]
         [Description("Don't prompt for confirmation before deleting JWTs")]
-        public bool? Force { get; set; }
+        public bool Force { get; set; }
     }
 
     public override int Execute([NotNull] CommandContext context, [NotNull] Settings settings)
     {
-        var userSecretsId = DevJwtCliHelpers.GetUserSecretsId(settings.Project!);
+        ArgumentNullException.ThrowIfNull(UserSecretsId);
 
-        if (userSecretsId is null)
-        {
-            AnsiConsole.MarkupLine("[red]Error:[/] The specified project does not have a user secrets ID configured. Set a user secrets ID by running the command [yello]'dotnet user-secrets init'[/].");
-            return 1;
-        }
-
-        var jwtStore = new JwtStore(userSecretsId);
+        var jwtStore = new JwtStore(UserSecretsId);
         var count = jwtStore.Jwts.Count;
 
         AnsiConsole.Markup($"[grey]Project:[/] ");
@@ -496,14 +455,9 @@ public class ClearJwtCommand : Command<ClearJwtCommand.Settings>
 
         return 0;
     }
-
-    public override ValidationResult Validate([NotNull] CommandContext context, [NotNull] Settings settings)
-    {
-        return settings.Validate();
-    }
 }
 
-public class KeyCommand : Command<KeyCommand.Settings>
+public class KeyCommand : JwtCommand<KeyCommand.Settings>
 {
     public class Settings : JwtSettings
     {
@@ -515,26 +469,21 @@ public class KeyCommand : Command<KeyCommand.Settings>
 
         [CommandOption("--reset")]
         [Description("Reset the signing key. This will invalidate all previously issued JWTs for this project.")]
-        public bool? Reset { get; set; }
+        public bool Reset { get; set; }
     }
 
     public override int Execute([NotNull] CommandContext context, [NotNull] Settings settings)
     {
-        var userSecretsId = DevJwtCliHelpers.GetUserSecretsId(settings.Project!);
+        ArgumentNullException.ThrowIfNull(settings.Project);
+        ArgumentNullException.ThrowIfNull(UserSecretsId);
 
-        if (userSecretsId is null)
-        {
-            AnsiConsole.MarkupLine("[red]Error:[/] The specified project does not have a user secrets ID configured. Set a user secrets ID by running the command [yello]'dotnet user-secrets init'[/].");
-            return 1;
-        }
-
-        DevJwtCliHelpers.PrintProjectDetails(settings.Project!, userSecretsId);
+        DevJwtCliHelpers.PrintProjectDetails(settings.Project, UserSecretsId);
 
         if (settings.Reset == true)
         {
             if (AnsiConsole.Confirm("Are you sure you want to reset the JWT signing key? This will invalidate all JWTs previously issued for this project.", defaultValue: false))
             {
-                var key = DevJwtCliHelpers.CreateSigningKeyMaterial(userSecretsId, reset: true);
+                var key = DevJwtCliHelpers.CreateSigningKeyMaterial(UserSecretsId, reset: true);
                 AnsiConsole.MarkupLineInterpolated($"[grey]New signing key created:[/] {Convert.ToBase64String(key)}");
                 return 0;
             }
@@ -544,7 +493,7 @@ public class KeyCommand : Command<KeyCommand.Settings>
         }
 
         var projectConfiguration = new ConfigurationBuilder()
-            .AddUserSecrets(userSecretsId)
+            .AddUserSecrets(UserSecretsId)
             .Build();
         var signingKeyMaterial = projectConfiguration[DevJwtsDefaults.SigningKeyConfigurationKey];
 
@@ -559,12 +508,39 @@ public class KeyCommand : Command<KeyCommand.Settings>
     }
 }
 
-public class JwtSettings : CommandSettings
+public abstract class JwtCommand<TSettings> : Command<TSettings> where TSettings : JwtSettings
+{
+    public string? UserSecretsId { get; set; }
+
+    public override ValidationResult Validate([NotNull] CommandContext context, [NotNull] TSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings.Project);
+
+        var baseResult = base.Validate(context, settings);
+        if (!baseResult.Successful)
+        {
+            return baseResult;
+        }
+
+        var settingsResult = settings.Validate();
+        if (!settingsResult.Successful)
+        {
+            return settingsResult;
+        }
+
+        if ((UserSecretsId = DevJwtCliHelpers.GetUserSecretsId(settings.Project)) is null)
+        {
+            return ValidationResult.Error("The specified project does not have a user secrets ID configured. Set a user secrets ID by running the command [yello]'dotnet user-secrets init'[/].");
+        }
+
+        return ValidationResult.Success();
+    }
+}
+
+public abstract class JwtSettings : CommandSettings
 {
     public JwtSettings(string? project)
     {
-        User = Environment.UserName;
-
         if (project is not null)
         {
             Project = Path.GetFullPath(project);
@@ -582,22 +558,28 @@ public class JwtSettings : CommandSettings
 
     [CommandOption("-p|--project <PROJECT>")]
     [Description("The path of the project to operate on. Defaults to the project in the current directory.")]
-    public string? Project { get; init; }
+    public string? Project { get; }
 
-    public string User { get; init; }
+    public string User { get; } = Environment.UserName;
 
     public override ValidationResult Validate()
     {
-        if (Project is { } project && !File.Exists(project))
+        var baseResult = base.Validate();
+        if (!baseResult.Successful)
         {
-            return ValidationResult.Error($"Project {project} could not be found");
+            return baseResult;
+        }
+
+        if (Project is { } path && !File.Exists(path))
+        {
+            return ValidationResult.Error($"Project {path} could not be found");
         }
         else if (Project is null)
         {
             return ValidationResult.Error($"A project could not be found or there were multiple projects in the current directory. Specify a project using the project option.");
         }
 
-        return base.Validate();
+        return ValidationResult.Success();
     }
 }
 
@@ -616,7 +598,7 @@ internal static class DevJwtCliHelpers
         return existingUserSecretsId.Value;
     }
 
-    public static byte[] GetOrCreateSigningKeyMaterial(string userSecretsId, bool reset = false)
+    public static byte[] GetOrCreateSigningKeyMaterial(string userSecretsId)
     {
         var projectConfiguration = new ConfigurationBuilder()
             .AddUserSecrets(userSecretsId)
@@ -665,9 +647,7 @@ internal static class DevJwtCliHelpers
 
     public static void PrintProjectDetails(string projectPath, string userSecretsId)
     {
-        var settingsTable = new Table();
-        settingsTable.ShowHeaders = false;
-        settingsTable.Border(TableBorder.None);
+        var settingsTable = new Table { ShowHeaders = false, Border = TableBorder.None };
         settingsTable.AddColumn("Name");
         settingsTable.AddColumn("Value");
         settingsTable.AddRow(new Markup("[grey]Project:[/]"), new TextPath(projectPath));
@@ -685,20 +665,22 @@ internal static class DevJwtCliHelpers
         table.AddRow(new Markup("[bold grey]Id:[/]"), new Text(jwt.Id));
         table.AddRow(new Markup("[bold grey]Name:[/]"), new Text(jwt.Name));
         table.AddRow(new Markup("[bold grey]Audience:[/]"), new Text(jwt.Audience));
-        table.AddRow(new Markup("[bold grey]Claims:[/]"), jwt.Claims?.Count > 0 ? new Rows(jwt.Claims.Select(kvp => new Text($"{kvp.Key}={kvp.Value}"))) : new Text("[none]"));
         table.AddRow(new Markup("[bold grey]Expires:[/]"), new Text(jwt.Expires.ToString("O")));
         table.AddRow(new Markup("[bold grey]Issued:[/]"), new Text(jwt.Issued.ToString("O")));
+        table.AddRow(new Markup("[bold grey]Scopes:[/]"), new Text(jwt.Scopes is not null ? string.Join(", ", jwt.Scopes) : "[none]"));
+        table.AddRow(new Markup("[bold grey]Roles:[/]"), new Text(jwt.Roles is not null ? string.Join(", ", jwt.Roles) : "[none]"));
+        table.AddRow(new Markup("[bold grey]Custom Claims:[/]"), jwt.CustomClaims?.Count > 0 ? new Rows(jwt.CustomClaims.Select(kvp => new Text($"{kvp.Key}={kvp.Value}"))) : new Text("[none]"));
         if (fullToken is not null)
         {
-            table.AddRow(new Markup("[bold grey]Token Header:[/]"), new Text(JsonSerializer.Serialize(fullToken.Header)));
-            table.AddRow(new Markup("[bold grey]Token Payload:[/]"), new Text(JsonSerializer.Serialize(fullToken.Payload)));
+            table.AddRow(new Markup("[bold grey]Token Header:[/]"), new Text(fullToken.Header.SerializeToJson()));
+            table.AddRow(new Markup("[bold grey]Token Payload:[/]"), new Text(fullToken.Payload.SerializeToJson()));
         }
         AnsiConsole.Write(table);
         AnsiConsole.MarkupLine("[bold grey]Compact Token:[/]");
         Console.WriteLine(jwt.Token);
     }
 
-    public static string GetApplicationUrl(string project)
+    public static string? GetApplicationUrl(string project)
     {
         // TODO: Figure out what to do if no HTTPS addresses exist
         // TODO: Handle error cases, missing properties/content, etc.
@@ -738,7 +720,7 @@ internal static class DevJwtCliHelpers
             }
         }
 
-        throw new InvalidOperationException("Audience: What to do when we can't determine the project's HTTPS address?");
+        return null;
     }
 
     public static bool TryParseClaims(string[] input, out IDictionary<string, string> claims)
@@ -755,17 +737,7 @@ internal static class DevJwtCliHelpers
             var key = parts[0];
             var value = parts[1];
 
-            // Collapse multiple scopes into single space-delimited field
-            if (string.Equals("scope", key, StringComparison.Ordinal) && claims.ContainsKey("scope"))
-            {
-                var existingScope = claims["scope"];
-                claims["scope"] = $"{existingScope} {value}";
-            }
-            else
-            {
-                // TODO: Handle other duplicate claims
-                claims.Add(key, value);
-            }
+            claims.Add(key, value);
         }
         return true;
     }
@@ -773,9 +745,23 @@ internal static class DevJwtCliHelpers
 
 public record Jwt(string Id, string Name, string Audience, DateTimeOffset NotBefore, DateTimeOffset Expires, DateTimeOffset Issued, string Token)
 {
-    public IDictionary<string, string>? Claims { get; set; } = new Dictionary<string, string>();
+    public IEnumerable<string>? Scopes { get; set; } = new List<string>();
+
+    public IEnumerable<string>? Roles { get; set; } = new List<string>();
+
+    public IDictionary<string, string>? CustomClaims { get; set; } = new Dictionary<string, string>();
 
     public override string ToString() => Token;
+
+    public static Jwt Create(JwtSecurityToken token, string encodedToken, IEnumerable<string>? scopes = null, IEnumerable<string>? roles = null, IDictionary<string, string>? customClaims = null)
+    {
+        return new Jwt(token.Id, token.Subject, token.Audiences.FirstOrDefault() ?? throw new ArgumentNullException(nameof(Audience)), token.ValidFrom, token.ValidTo, token.IssuedAt, encodedToken)
+        {
+            Scopes = scopes, 
+            Roles = roles,
+            CustomClaims = customClaims
+        };
+    }
 }
 
 public class JwtIssuer
@@ -790,31 +776,45 @@ public class JwtIssuer
 
     public string Issuer { get; }
 
-    public Jwt Create(string name, string audience, DateTime notBefore, DateTime expires, DateTime issued, IDictionary<string, string>? claims = null)
+    public JwtSecurityToken Create(string name, string audience, DateTime? notBefore, DateTime? expires, DateTime? issuedAt, IEnumerable<string>? scopes = null, IEnumerable<string>? roles = null, IDictionary<string, string> ? claims = null)
     {
         var identity = new GenericIdentity(name);
+
+        identity.AddClaim(new Claim(JwtRegisteredClaimNames.Sub, name));
+
+        var id = Guid.NewGuid().ToString().GetHashCode().ToString("x");
+        identity.AddClaim(new Claim(JwtRegisteredClaimNames.Jti, id));
+
+        if (scopes is { } scopesToAdd)
+        {
+            identity.AddClaims(scopesToAdd.Select(s => new Claim("scope", s)));
+        }
+
+        if (roles is { } rolesToAdd)
+        {
+            identity.AddClaims(rolesToAdd.Select(r => new Claim(ClaimTypes.Role, r)));
+        }
+
         if (claims is { Count: > 0 } claimsToAdd)
         {
             identity.AddClaims(claimsToAdd.Select(kvp => new Claim(kvp.Key, kvp.Value)));
         }
-        
+
         var handler = new JwtSecurityTokenHandler();
         var jwtSigningCredentials = new SigningCredentials(_signingKey, SecurityAlgorithms.HmacSha256Signature);
-        var token = handler.CreateEncodedJwt(Issuer, audience, identity, notBefore, expires, issued, jwtSigningCredentials);
-
-        var id = Guid.NewGuid().ToString().GetHashCode().ToString("x");
-        var jwt = new Jwt(id, name, audience, notBefore, expires, issued, token);
-        if (claims is not null)
-        {
-            foreach (var claim in claims)
-            {
-                jwt.Claims?.Add(claim);
-            }
-        }
-        return jwt;
+        var jwtToken = handler.CreateJwtSecurityToken(Issuer, audience, identity, notBefore, expires, issuedAt, jwtSigningCredentials);
+        return jwtToken;
     }
 
-    public JwtSecurityToken Extract(string token)
+    public string WriteToken(JwtSecurityToken token)
+    {
+        var handler = new JwtSecurityTokenHandler();
+        return handler.WriteToken(token);
+    }
+
+    public JwtSecurityToken Extract(string token) => new JwtSecurityToken(token);
+
+    public bool IsValid(string encodedToken)
     {
         var handler = new JwtSecurityTokenHandler();
         var tokenValidationParameters = new TokenValidationParameters
@@ -822,10 +822,13 @@ public class JwtIssuer
             IssuerSigningKey = _signingKey,
             ValidateAudience = false,
             ValidateIssuer = false,
-            ValidateLifetime = false
+            ValidateIssuerSigningKey = true
         };
-        var _ = handler.ValidateToken(token, tokenValidationParameters, out var securityToken);
-        return (JwtSecurityToken)securityToken;
+        if (handler.ValidateToken(encodedToken, tokenValidationParameters, out var validatedToken).Identity?.IsAuthenticated == true)
+        {
+            return true;
+        }
+        return false;
     }
 }
 

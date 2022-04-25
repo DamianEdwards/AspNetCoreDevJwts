@@ -1,5 +1,5 @@
 ﻿using Microsoft.AspNetCore.Authentication;
-using Microsoft.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.Authorization;
 
 namespace Microsoft.AspNetCore.Builder;
 
@@ -16,5 +16,27 @@ public static class DevJwtsBuilderExtensions
         }
 
         return (WebApplicationAuthenticationBuilder)webAppAuthBuilder;
+    }
+
+    /// <summary>
+    /// Adds an authorization policy with the specified roles to the endpoint(s).
+    /// </summary>
+    /// <typeparam name="TBuilder"></typeparam>
+    /// <param name="builder"></param>
+    /// <param name="roles"></param>
+    /// <returns></returns>
+    public static TBuilder RequireRole<TBuilder>(this TBuilder builder, params string[] roles) where TBuilder : IEndpointConventionBuilder
+    {
+        builder.RequireAuthorization(new EndpointRolesAuthorizeData { Roles = string.Join(',', roles) });
+        return builder;
+    }
+
+    class EndpointRolesAuthorizeData : IAuthorizeData
+    {
+        public string? Policy { get; set; }
+
+        public string? Roles { get; set; }
+
+        public string? AuthenticationSchemes { get; set; }
     }
 }
