@@ -123,10 +123,12 @@ I logged [this issue in ASP.NET Core](https://github.com/dotnet/aspnetcore/issue
 
 ## What's next
 Try exploring the CLI's commands and options to:
-- Create JWTs for different users: `dev-jwt create -n TestUser`
-- List the JWTs created for the current project: `dev-jwt list`
-- Reset the JWT signing key for the current project: `dev-jwt key --reset`
-- Create JWTs with custom claims: `dev-jwt create -n PrivilegedUser -c scope=myapi:read -c scope=myapi:write -c favoritecolor=blue`
+- Create JWTs for different users: `dev-jwts create -n TestUser`
+- Create JWTs with roles and use it to access the `/roles` endpoint: `dev-jwts create -n RoleUser -r SampleRole`
+- List the JWTs created for the current project: `dev-jwts list`
+- Reset the JWT signing key for the current project: `dev-jwts key --reset`
+- Create JWTs with scopes: `dev-jwts create -n ScopedUser -s myapi:read -s myapi:write`
+- Create JWTs with custom claims: `dev-jwts create -n CustomUser -c favoritecolor=blue`
 - Try using the CLI on a new web project (not the one in this project) to see what the first-use experience is like
 - Explore the code in this repo that makes this work at runtime
 - Give feedback on the idea over on the [original issue](https://github.com/dotnet/aspnetcore/issues/39857)
