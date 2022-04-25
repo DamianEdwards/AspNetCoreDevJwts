@@ -29,7 +29,7 @@ app.MapGet("/protected", (ClaimsPrincipal user) => $"Hello {user.Identity?.Name}
     .RequireAuthorization();
 
 // It will be possible in 7.0.0-preview.4 to add authorization rules (policies) directly to endpoints
-app.MapGet("/protected/custom", (ClaimsPrincipal user) => $"Hello {user.Identity?.Name}, you have the required scope claims.")
+app.MapGet("/protected/custom", (ClaimsPrincipal user) => $"Hello {user.Identity?.Name}, you have the required claims.")
     .RequireAuthorization(p => p.RequireClaim("customclaim"));
 
 // This is an extension method that allows simple protection of endpoints based on role claims
