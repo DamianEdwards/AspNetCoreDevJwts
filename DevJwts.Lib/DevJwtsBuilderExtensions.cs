@@ -27,16 +27,20 @@ public static class DevJwtsBuilderExtensions
     /// <returns></returns>
     public static TBuilder RequireRole<TBuilder>(this TBuilder builder, params string[] roles) where TBuilder : IEndpointConventionBuilder
     {
-        builder.RequireAuthorization(new EndpointRolesAuthorizeData { Roles = string.Join(',', roles) });
+        builder.RequireAuthorization(p => p.RequireRole(roles));
         return builder;
     }
 
-    class EndpointRolesAuthorizeData : IAuthorizeData
+    /// <summary>
+    /// Adds an authorization policy with the specified scope claims to the endpoint(s).
+    /// </summary>
+    /// <typeparam name="TBuilder"></typeparam>
+    /// <param name="builder"></param>
+    /// <param name="scopes"></param>
+    /// <returns></returns>
+    public static TBuilder RequireScope<TBuilder>(this TBuilder builder, params string[] scopes) where TBuilder : IEndpointConventionBuilder
     {
-        public string? Policy { get; set; }
-
-        public string? Roles { get; set; }
-
-        public string? AuthenticationSchemes { get; set; }
+        builder.RequireAuthorization(p => p.RequireClaim("scope", scopes));
+        return builder;
     }
 }

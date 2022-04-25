@@ -15,7 +15,7 @@
 
   <ItemGroup>
     <PackageReference Include="Spectre.Console" Version="0.44.1-preview.0.4" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="7.0.0-preview.3.22175.4" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="7.0.0-preview.4.22222.4" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="6.15.1" />
   </ItemGroup>
 
