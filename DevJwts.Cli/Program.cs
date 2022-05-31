@@ -189,7 +189,7 @@ public class CreateJwtCommand : JwtCommand<CreateJwtCommand.Settings>
         }
     }
 
-    public IDictionary<string, string>? Claims { get; set; }
+    public IDictionary<string, string?>? Claims { get; set; }
 
     public string? Name { get; private set; }
 
@@ -211,7 +211,7 @@ public class CreateJwtCommand : JwtCommand<CreateJwtCommand.Settings>
         var jwtToken = jwtIssuer.Create(Name, Audience, notBefore: NotBefore, expires: ExpiresOn, issuedAt: DateTime.UtcNow, settings.Scopes, settings.Roles, Claims);
 
         var jwtStore = new JwtStore(UserSecretsId);
-        var jwt = Jwt.Create(jwtToken, jwtIssuer.WriteToken(jwtToken), settings.Scopes, settings.Roles, Claims);
+        var jwt = Jwt.Create(jwtToken, JwtIssuer.WriteToken(jwtToken), settings.Scopes, settings.Roles, Claims);
         if (Claims is { } customClaims)
         {
             jwt.CustomClaims = customClaims;
@@ -277,7 +277,7 @@ public class CreateJwtCommand : JwtCommand<CreateJwtCommand.Settings>
 
         if (settings.Claims is { Length: >0 } claimsInput)
         {
-            if (!DevJwtCliHelpers.TryParseClaims(claimsInput, out IDictionary<string, string> claims))
+            if (!DevJwtCliHelpers.TryParseClaims(claimsInput, out IDictionary<string, string?> claims))
             {
                 return ValidationResult.Error("Malformed claims supplied. Ensure each claim is in the format \"name=value\".");
             }
@@ -341,14 +341,7 @@ public class PrintJwtCommand : JwtCommand<PrintJwtCommand.Settings>
 
         AnsiConsole.MarkupLineInterpolated($"[green]Found JWT with ID[/] [yellow]{settings.Id}[/]");
         var jwt = jwtStore.Jwts[settings.Id];
-        JwtSecurityToken? fullToken = null;
-        if (settings.Full == true)
-        {
-            var keyMaterial = DevJwtCliHelpers.GetOrCreateSigningKeyMaterial(UserSecretsId);
-            var jwtIssuer = new JwtIssuer(DevJwtsDefaults.Issuer, keyMaterial);
-            fullToken = jwtIssuer.Extract(jwt.Token);
-        }
-        DevJwtCliHelpers.PrintJwt(jwt, fullToken);
+        DevJwtCliHelpers.PrintJwt(jwt, settings.Full ? JwtIssuer.Extract(jwt.Token) : null);
 
         return 0;
     }
@@ -669,7 +662,9 @@ internal static class DevJwtCliHelpers
         table.AddRow(new Markup("[bold grey]Issued:[/]"), new Text(jwt.Issued.ToString("O")));
         table.AddRow(new Markup("[bold grey]Scopes:[/]"), new Text(jwt.Scopes is not null ? string.Join(", ", jwt.Scopes) : "[none]"));
         table.AddRow(new Markup("[bold grey]Roles:[/]"), new Text(jwt.Roles is not null ? string.Join(", ", jwt.Roles) : "[none]"));
-        table.AddRow(new Markup("[bold grey]Custom Claims:[/]"), jwt.CustomClaims?.Count > 0 ? new Rows(jwt.CustomClaims.Select(kvp => new Text($"{kvp.Key}={kvp.Value}"))) : new Text("[none]"));
+        table.AddRow(new Markup("[bold grey]Custom Claims:[/]"), jwt.CustomClaims?.Count > 0
+            ? new Rows(jwt.CustomClaims.Select(kvp => new Text(!string.IsNullOrEmpty(kvp.Value) ? $"{kvp.Key}={kvp.Value}" : kvp.Key)))
+            : new Text("[none]"));
         if (fullToken is not null)
         {
             table.AddRow(new Markup("[bold grey]Token Header:[/]"), new Text(fullToken.Header.SerializeToJson()));
@@ -723,19 +718,19 @@ internal static class DevJwtCliHelpers
         return null;
     }
 
-    public static bool TryParseClaims(string[] input, out IDictionary<string, string> claims)
+    public static bool TryParseClaims(string[] input, out IDictionary<string, string?> claims)
     {
-        claims = new Dictionary<string, string>();
+        claims = new Dictionary<string, string?>();
         foreach (var claim in input)
         {
             var parts = claim.Split('=');
-            if (parts.Length != 2)
+            if (parts.Length > 2)
             {
                 return false;
             }
 
             var key = parts[0];
-            var value = parts[1];
+            var value = parts.Length == 2 ? parts[1] : null;
 
             claims.Add(key, value);
         }
@@ -749,13 +744,13 @@ public record Jwt(string Id, string Name, string Audience, DateTimeOffset NotBef
 
     public IEnumerable<string>? Roles { get; set; } = new List<string>();
 
-    public IDictionary<string, string>? CustomClaims { get; set; } = new Dictionary<string, string>();
+    public IDictionary<string, string?>? CustomClaims { get; set; } = new Dictionary<string, string?>();
 
     public override string ToString() => Token;
 
-    public static Jwt Create(JwtSecurityToken token, string encodedToken, IEnumerable<string>? scopes = null, IEnumerable<string>? roles = null, IDictionary<string, string>? customClaims = null)
+    public static Jwt Create(JwtSecurityToken token, string encodedToken, IEnumerable<string>? scopes = null, IEnumerable<string>? roles = null, IDictionary<string, string?>? customClaims = null)
     {
-        return new Jwt(token.Id, token.Subject, token.Audiences.FirstOrDefault() ?? throw new ArgumentNullException(nameof(Audience)), token.ValidFrom, token.ValidTo, token.IssuedAt, encodedToken)
+        return new Jwt(token.Id, token.Subject, token.Audiences.FirstOrDefault() ?? throw new ArgumentException("Provided token has no audience", nameof(token)), token.ValidFrom, token.ValidTo, token.IssuedAt, encodedToken)
         {
             Scopes = scopes, 
             Roles = roles,
@@ -776,7 +771,7 @@ public class JwtIssuer
 
     public string Issuer { get; }
 
-    public JwtSecurityToken Create(string name, string audience, DateTime? notBefore, DateTime? expires, DateTime? issuedAt, IEnumerable<string>? scopes = null, IEnumerable<string>? roles = null, IDictionary<string, string> ? claims = null)
+    public JwtSecurityToken Create(string name, string audience, DateTime? notBefore, DateTime? expires, DateTime? issuedAt, IEnumerable<string>? scopes = null, IEnumerable<string>? roles = null, IDictionary<string, string?>? claims = null)
     {
         var identity = new GenericIdentity(name);
 
@@ -797,7 +792,7 @@ public class JwtIssuer
 
         if (claims is { Count: > 0 } claimsToAdd)
         {
-            identity.AddClaims(claimsToAdd.Select(kvp => new Claim(kvp.Key, kvp.Value)));
+            identity.AddClaims(claimsToAdd.Select(kvp => new Claim(kvp.Key, kvp.Value ?? "")));
         }
 
         var handler = new JwtSecurityTokenHandler();
@@ -806,13 +801,13 @@ public class JwtIssuer
         return jwtToken;
     }
 
-    public string WriteToken(JwtSecurityToken token)
+    public static string WriteToken(JwtSecurityToken token)
     {
         var handler = new JwtSecurityTokenHandler();
         return handler.WriteToken(token);
     }
 
-    public JwtSecurityToken Extract(string token) => new JwtSecurityToken(token);
+    public static JwtSecurityToken Extract(string token) => new(token);
 
     public bool IsValid(string encodedToken)
     {
@@ -824,7 +819,7 @@ public class JwtIssuer
             ValidateIssuer = false,
             ValidateIssuerSigningKey = true
         };
-        if (handler.ValidateToken(encodedToken, tokenValidationParameters, out var validatedToken).Identity?.IsAuthenticated == true)
+        if (handler.ValidateToken(encodedToken, tokenValidationParameters, out _).Identity?.IsAuthenticated == true)
         {
             return true;
         }

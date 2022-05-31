@@ -2,7 +2,7 @@
   "profiles": {
     "DevJwts.Cli": {
       "commandName": "Project",
-      "commandLineArgs": "print c2130145 --full",
+      "commandLineArgs": "list",
       "workingDirectory": "$(ProjectDir)../SampleWebApi"
     }
   }
